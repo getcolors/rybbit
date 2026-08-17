@@ -72,9 +72,16 @@
     (assoc opts
            :ip (or (:ip opts) (:ip (fallback-params opts)))
            :cloudflare-zone zone
+           ;; Proxied by default: an unproxied record publishes the droplet's
+           ;; address, leaving the firewall as the only thing in front of the
+           ;; origin. The Caddyfile already trusts Cloudflare's ranges, so
+           ;; client addresses still come from X-Forwarded-For and geo and ASN
+           ;; attribution are unaffected. Set the key to false to opt out --
+           ;; note that doing so is also what keeps ssh to the host name
+           ;; working, which a converge never needs but an operator may.
            :cloudflare-proxied (if (some? (:cloudflare-proxied opts))
                                  (:cloudflare-proxied opts)
-                                 false))))
+                                 true))))
 
 (defn dns-json [opts]
   (tofu/constructs-json

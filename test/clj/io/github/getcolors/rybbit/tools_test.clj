@@ -10,10 +10,22 @@
     (is (= ["0.0.0.0/0" "::/0"] (tools/cidrs data :digitalocean-http-sources)))))
 
 (deftest dns-is-apex-and-proxied
-  (let [json (tools/dns-json (assoc (fixture) :ip "192.0.2.10"))]
+  (let [json (tools/dns-json (tools/dns-data (assoc (fixture) :ip "192.0.2.10")))]
     (is (str/includes? json "rybbit.example.com"))
     (is (str/includes? json "192.0.2.10"))
-    (is (str/includes? json "proxied"))))
+    ;; Assert the value, not the key: "proxied" appears in the rendered record
+    ;; either way, so a bare includes? check passes on an unproxied record and
+    ;; would not have caught the default being false.
+    (is (str/includes? json "\"proxied\" : true"))))
+
+(deftest dns-proxying-defaults-on-and-can-be-declined
+  (is (true? (:cloudflare-proxied (tools/dns-data (fixture)))))
+  (is (false? (:cloudflare-proxied
+               (tools/dns-data (assoc (fixture) :cloudflare-proxied false)))))
+  (is (str/includes? (tools/dns-json
+                      (tools/dns-data (assoc (fixture) :ip "192.0.2.10"
+                                             :cloudflare-proxied false)))
+                     "\"proxied\" : false")))
 
 (deftest inventory-keeps-one-private-target
   (let [inventory (tools/inventory (assoc (fixture) :ip "192.0.2.10"))]
