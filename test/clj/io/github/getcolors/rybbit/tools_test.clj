@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [io.github.getcolors.rybbit.tools :as tools]
+            [io.github.getcolors.rybbit.validate :as validate]
             [io.github.getcolors.rybbit.validate-test :refer [fixture]]))
 
 (deftest infrastructure-discovers-default-vpc
@@ -63,3 +64,16 @@
   (let [playbook (slurp "src/resources/io/github/getcolors/rybbit/tools/ansible/main.yml")]
     (is (not (str/includes? playbook "DISABLE_SIGNUP=false")))
     (is (str/includes? playbook "DISABLE_SIGNUP=<{ rybbit-disable-signup }>"))))
+
+(deftest images-are-pinned-not-floating
+  ;; A moving tag is how the PostHog arm ended up running an application and a
+  ;; plugin server built from different commits, querying a column that did not
+  ;; exist. Digests cannot move under a deployment.
+  (let [fixture (slurp "test/fixtures/colors.yml")]
+    (is (not (re-find #"image:\s*\S+:(latest|master)\s*$" fixture)))
+    (is (re-find #"rybbit-backend-image: \S+@sha256:[0-9a-f]{64}" fixture))
+    (is (re-find #"rybbit-client-image: \S+@sha256:[0-9a-f]{64}" fixture))))
+
+(deftest validation-accepts-a-digest-pin
+  (is (= [] (validate/state-errors (fixture))))
+  (is (seq (validate/state-errors (fixture :rybbit-backend-image "no-tag-at-all")))))

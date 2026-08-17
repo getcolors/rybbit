@@ -33,8 +33,10 @@ rybbit-host: rybbit.example.com
 postgres-image: postgres:17-alpine
 clickhouse-image: clickhouse/clickhouse-server:24.8-alpine
 redis-image: redis:8.6.4-alpine
-rybbit-backend-image: ghcr.io/rybbit-io/rybbit-backend:latest
-rybbit-client-image: ghcr.io/rybbit-io/rybbit-client:latest
+# :latest resolved 2026-08-17; a moving tag is how the PostHog arm ended up
+# with an application and a plugin server built from different commits.
+rybbit-backend-image: ghcr.io/rybbit-io/rybbit-backend@sha256:f729f42575bf018ff97e9f36d49200665b99003a14868acbe56a9b32a9ed6ac7
+rybbit-client-image: ghcr.io/rybbit-io/rybbit-client@sha256:f384c1f73a0c2fc0794526908a1fdb2ba410a5cdb3f105487af70f067c8f103a
 caddy-image: caddy:2.11.4
 
 # Persistent data directories on the host

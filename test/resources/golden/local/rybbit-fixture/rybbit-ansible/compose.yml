@@ -67,7 +67,7 @@ services:
       - internal
 
   backend:
-    image: ghcr.io/rybbit-io/rybbit-backend:latest
+    image: ghcr.io/rybbit-io/rybbit-backend@sha256:f729f42575bf018ff97e9f36d49200665b99003a14868acbe56a9b32a9ed6ac7
     restart: unless-stopped
     env_file:
       - stack.env
@@ -96,7 +96,7 @@ services:
       - internal
 
   client:
-    image: ghcr.io/rybbit-io/rybbit-client:latest
+    image: ghcr.io/rybbit-io/rybbit-client@sha256:f384c1f73a0c2fc0794526908a1fdb2ba410a5cdb3f105487af70f067c8f103a
     restart: unless-stopped
     env_file:
       - stack.env
