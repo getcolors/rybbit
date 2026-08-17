@@ -23,6 +23,10 @@ compute-prevent-destroy: true
 
 # --- Rybbit analytics stack -------------------------------------------------
 
+# Rybbit has no first-run bootstrap: with signup disabled nobody can create the
+# first account. Leave this false until you have registered, then set it true.
+rybbit-disable-signup: false
+
 rybbit-host: rybbit.bigconfig.online
 
 # Pinned official images for multi-container stack
