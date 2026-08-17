@@ -103,3 +103,20 @@
   (let [src (slurp "src/clj/io/github/getcolors/rybbit/tools.clj")]
     (is (str/includes? src "str/split-lines"))
     (is (str/includes? src "re-matches #\"\\d+\""))))
+
+(deftest a-missing-compute-output-fails-loudly
+  ;; The documentation address belongs to build and dry-run. Merging it into a
+  ;; real converge would point Ansible at TEST-NET instead of failing.
+  (is (= "1.2.3.4" (:ip (tools/resolved-compute {} {:ip "192.0.2.10"} {:ip "1.2.3.4"}))))
+  (is (= 1 (:green/exit (tools/resolved-compute {} {:ip "192.0.2.10"} nil))))
+  (is (= 1 (:green/exit (tools/resolved-compute {} {:ip "192.0.2.10"} {}))))
+  (is (nil? (:green/exit (tools/resolved-compute {} {:ip "192.0.2.10"} {:ip "5.6.7.8"})))))
+
+(deftest signup-policy-is-reapplied-on-every-converge
+  ;; stack.env is written once to keep its generated secrets, which also froze
+  ;; the signup policy: changing the key afterwards silently did nothing.
+  (let [playbook (slurp "src/resources/io/github/getcolors/rybbit/tools/ansible/main.yml")]
+    (is (str/includes? playbook "lineinfile"))
+    (is (str/includes? playbook "DISABLE_SIGNUP=<{ rybbit-disable-signup }>"))
+    ;; An env_file is read when a container is created, not while it runs.
+    (is (str/includes? playbook "--force-recreate backend client"))))

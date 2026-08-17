@@ -65,6 +65,22 @@
       args: {executable: /bin/bash, creates: /opt/rybbit/stack.env}
       no_log: true
     - ansible.builtin.file: {path: /opt/rybbit/stack.env, mode: "0600", owner: root, group: root}
+    # stack.env is written once so the generated secrets survive a converge,
+    # which also froze the signup policy at whatever the first run wrote:
+    # flipping rybbit-disable-signup afterwards changed nothing, silently, on a
+    # setting that decides whether strangers can register. Keep this one line in
+    # step with desired state, and recreate the services that read it -- an
+    # env_file is consulted when a container is created, not while it runs.
+    - name: Keep the signup policy in step with desired state
+      ansible.builtin.lineinfile:
+        path: /opt/rybbit/stack.env
+        regexp: "^DISABLE_SIGNUP="
+        line: "DISABLE_SIGNUP=false"
+      register: rybbit_signup_policy
+    - name: Recreate the services that read the signup policy
+      ansible.builtin.command: docker compose up -d --force-recreate backend client
+      args: {chdir: /opt/rybbit}
+      when: rybbit_signup_policy.changed
     - name: Install stack configuration
       ansible.builtin.copy:
         src: "{{ item.src }}"
