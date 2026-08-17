@@ -106,11 +106,55 @@
        :host-key-checking false}
       (ansible-specs opts))))
 
-(defn run-json [args timeout]
-  (let [r (process/run-with-timeout args {} timeout)]
-    (if (zero? (:exit r))
-      [(try (json/parse-string (:out r) true) (catch Exception _ (:out r))) nil]
-      [nil (str (:err r) (:out r))])))
+;; --- Acceptance --------------------------------------------------------------
+;;
+;; Every claim this step reports must be one it checked. TLS is verified (never
+;; `curl -k`), an ingested event is read back out of ClickHouse rather than
+;; inferred from a status code, and the backup drill is confirmed by a fresh
+;; object in R2 rather than by systemd reporting that it started something.
+
+(defn http-status [args]
+  (let [r (process/run-with-timeout
+           (into ["curl" "-sS" "-o" "/dev/null" "-w" "%{http_code}"] args) {} 20000)]
+    (when (zero? (:exit r)) (str/trim (:out r)))))
+
+(defn ssh-out [ip command timeout]
+  (let [r (process/run-with-timeout
+           ["ssh" "-o" "StrictHostKeyChecking=no" "-o" "ConnectTimeout=10"
+            (str "root@" ip) command] {} timeout)]
+    (when (zero? (:exit r)) (str/trim (:out r)))))
+
+(def stack-env "cd /opt/rybbit && set -a && . ./stack.env && set +a && ")
+
+(defn psql [ip query]
+  (not-empty
+   (str (ssh-out ip (str stack-env
+                         "docker compose exec -T postgres psql -U \"$POSTGRES_USER\""
+                         " -d \"$POSTGRES_DB\" -tAc '" query "'")
+                 30000))))
+
+(defn clickhouse
+  "Resolve the events table from system.tables so the check does not hardcode a
+   database name Rybbit's migrations own, then run `query` against it."
+  [ip query]
+  (not-empty
+   (str (ssh-out ip (str stack-env
+                         "t=$(docker compose exec -T clickhouse clickhouse-client"
+                         " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\""
+                         " --query \"SELECT database || '.' || name FROM system.tables"
+                         " WHERE name = 'events' AND database NOT IN ('system')"
+                         " ORDER BY database LIMIT 1\" | tr -d '\\r'); "
+                         "[ -n \"$t\" ] && docker compose exec -T clickhouse clickhouse-client"
+                         " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\""
+                         " --query \"" query "\"")
+                 30000))))
+
+(defn event-count [ip]
+  (some-> (clickhouse ip "SELECT count() FROM $t") parse-long))
+
+(defn site-id [ip]
+  (or (psql ip "select site_id from sites limit 1")
+      (psql ip "select id from sites limit 1")))
 
 (defn wait-health [url attempts]
   (loop [n attempts]
@@ -119,27 +163,89 @@
             (pos? n) (do (Thread/sleep 5000) (recur (dec n)))
             :else false))))
 
+(defn send-event [base site]
+  (http-status ["-X" "POST" "-H" "content-type: application/json"
+                "-H" "User-Agent: Mozilla/5.0 (Colors acceptance)"
+                "--data" (json/generate-string
+                          {:name "pageview" :site_id site
+                           :data {:path "/colors-acceptance"}})
+                (str base "/api/track")]))
+
+(defn ingestion-verdict [status before after]
+  (cond (nil? status) :unreachable
+        (and (integer? before) (integer? after) (> after before)) :ingested
+        (re-matches #"2\d\d" (str status)) :dropped
+        :else :rejected))
+
+(defn wait-ingested [ip baseline attempts]
+  (loop [n attempts]
+    (let [after (event-count ip)]
+      (cond (and (integer? after) (> after baseline)) after
+            (pos? n) (do (Thread/sleep 3000) (recur (dec n)))
+            :else after))))
+
+(def rclone-env
+  (str "RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare "
+       "RCLONE_CONFIG_R2_REGION=auto RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true"))
+
+(defn backup-listing [opts ip]
+  (some-> (ssh-out ip (str "set -a; . /etc/rybbit-backup.env; set +a; " rclone-env
+                           " RCLONE_CONFIG_R2_ACCESS_KEY_ID=\"$RYBBIT_BACKUP_R2_ACCESS_KEY_ID\""
+                           " RCLONE_CONFIG_R2_SECRET_ACCESS_KEY=\"$RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY\""
+                           " RCLONE_CONFIG_R2_ENDPOINT=\"" (:rybbit-backup-r2-endpoint opts) "\""
+                           " rclone lsjson --files-only r2:" (:rybbit-backup-r2-bucket opts)
+                           "/" (:profile opts))
+                   120000)
+          not-empty
+          (json/parse-string true)))
+
+(defn parse-instant [s]
+  (try (.toInstant (java.time.OffsetDateTime/parse (str s))) (catch Exception _ nil)))
+
+(defn fresh-backup? [entries since]
+  (boolean (some (fn [{:keys [Size ModTime]}]
+                   (and (pos? (or Size 0))
+                        (when-let [t (parse-instant ModTime)]
+                          (not (.isBefore t since)))))
+                 entries)))
+
+(defn run-backup [ip]
+  (ssh-out ip "systemctl start rybbit-backup.service && systemctl is-active rybbit-backup.timer"
+           300000))
+
 (defn acceptance-step [opts]
   (if (not= :create (:green/event opts))
     (assoc opts :green/exit 0)
-    (let [base (str "https://" (:rybbit-host opts))]
+    (let [base (str "https://" (:rybbit-host opts))
+          ip (:ip opts)
+          since (.minusSeconds (java.time.Instant/now) 120)]
       (if-not (wait-health base 60)
-        (assoc opts :green/exit 1 :green/err "HTTPS health did not become ready")
-        (let [track-res (process/run-with-timeout
-                         ["curl" "-s" "-o" "/dev/null" "-w" "%{http_code}" "-X" "POST"
-                          "-H" "content-type: application/json"
-                          "--data" "{\"name\":\"pageview\",\"site_id\":\"benchmark\",\"data\":{\"path\":\"/acceptance-test\"}}"
-                          (str base "/api/track")] {} 15000)
-              backup-res (process/run-with-timeout
-                          ["ssh" "-o" "StrictHostKeyChecking=no" "-o" "ConnectTimeout=10"
-                           (str "root@" (:ip opts)) "systemctl start rybbit-backup.service"] {} 30000)
-              timer-res (process/run-with-timeout
-                         ["ssh" "-o" "StrictHostKeyChecking=no" "-o" "ConnectTimeout=10"
-                          (str "root@" (:ip opts)) "systemctl is-active rybbit-backup.timer"] {} 10000)]
-          (cond
-            (not (zero? (:exit backup-res)))
-            (assoc opts :green/exit 1 :green/err (str "backup service run failed: " (:err backup-res) (:out backup-res)))
-            (not= "active\n" (:out timer-res))
-            (assoc opts :green/exit 1 :green/err (str "backup timer is not active: " (:out timer-res)))
-            :else
-            (assoc opts :green/exit 0 :rybbit/acceptance {:health "ok" :track (:out track-res) :backup "ok"})))))))
+        (assoc opts :green/exit 1
+               :green/err "HTTPS health did not become ready with a valid certificate")
+        (let [site (site-id ip)
+              before (event-count ip)]
+          (if-not (integer? before)
+            (assoc opts :green/exit 1
+                   :green/err "could not read the ClickHouse events table to verify ingestion")
+            (let [verdict (if-not site
+                            :not-configured
+                            (let [status (send-event base site)
+                                  after (wait-ingested ip before 10)]
+                              (ingestion-verdict status before after)))]
+              (cond
+                (contains? #{:dropped :rejected :unreachable} verdict)
+                (assoc opts :green/exit 1
+                       :green/err (str "synthetic event was not ingested: " (name verdict)))
+
+                (nil? (run-backup ip))
+                (assoc opts :green/exit 1 :green/err "backup unit or timer is not healthy")
+
+                (not (fresh-backup? (backup-listing opts ip) since))
+                (assoc opts :green/exit 1
+                       :green/err (str "no backup object newer than this run under r2:"
+                                       (:rybbit-backup-r2-bucket opts) "/" (:profile opts)))
+
+                :else
+                (assoc opts :green/exit 0
+                       :rybbit/acceptance {:health :ok :event verdict
+                                           :backup :verified-in-r2})))))))))

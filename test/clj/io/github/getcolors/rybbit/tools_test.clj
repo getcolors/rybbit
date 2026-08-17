@@ -18,3 +18,21 @@
   (let [inventory (tools/inventory (assoc (fixture) :ip "192.0.2.10"))]
     (is (str/includes? inventory "192.0.2.10"))
     (is (str/includes? inventory "rybbit-fixture"))))
+
+(deftest ingestion-is-judged-by-the-stored-row-not-the-status
+  (is (= :ingested (tools/ingestion-verdict "200" 4 5)))
+  ;; The failure this gate exists for: the endpoint accepts and nothing lands.
+  (is (= :dropped (tools/ingestion-verdict "200" 4 4)))
+  (is (= :dropped (tools/ingestion-verdict "202" 4 nil)))
+  (is (= :rejected (tools/ingestion-verdict "400" 4 4)))
+  (is (= :unreachable (tools/ingestion-verdict nil 4 4))))
+
+(deftest backup-must-be-fresh-and-non-empty
+  (let [since (java.time.Instant/parse "2026-08-17T02:30:00Z")
+        entry (fn [size mod-time] {:Size size :ModTime mod-time})]
+    (is (tools/fresh-backup? [(entry 1024 "2026-08-17T02:30:05Z")] since))
+    (is (tools/fresh-backup? [(entry 1024 "2026-08-17T04:30:05+02:00")] since))
+    (is (not (tools/fresh-backup? [(entry 1024 "2026-08-16T02:30:05Z")] since)))
+    (is (not (tools/fresh-backup? [(entry 0 "2026-08-17T02:30:05Z")] since)))
+    (is (not (tools/fresh-backup? [] since)))
+    (is (not (tools/fresh-backup? nil since)))))
