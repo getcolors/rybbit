@@ -152,9 +152,27 @@
 (defn event-count [ip]
   (some-> (clickhouse ip "SELECT count() FROM $t") parse-long))
 
-(defn site-id [ip]
-  (or (psql ip "select site_id from sites limit 1")
-      (psql ip "select id from sites limit 1")))
+(defn acceptance-site-id
+  "A dedicated throwaway site, created on demand. Sending the synthetic event to
+   whichever site happened to be first wrote a /colors-acceptance pageview into
+   the operator's real analytics on every converge. The site is attached to the
+   existing organization so it stays visible and deletable in the UI."
+  [opts ip]
+  (let [domain (or (not-empty (str (:rybbit-acceptance-site-domain opts)))
+                   "colors-acceptance.invalid")]
+    ;; Dollar-quoted literals: the query travels inside single quotes in a
+    ;; remote shell, where an escaped quote would arrive at psql verbatim.
+    ;; psql prints the INSERT tag before the SELECT result, so take the id off
+    ;; the last line rather than the whole output.
+    (some->> (psql ip (str "insert into sites (name, domain, organization_id) "
+                  "select $$colors-acceptance$$, $$" domain "$$, "
+                  "(select id from organization limit 1) "
+                  "where not exists (select 1 from sites where domain = $$" domain "$$); "
+                  "select site_id from sites where domain = $$" domain "$$ limit 1"))
+             str/split-lines
+             last
+             str/trim
+             (re-matches #"\d+"))))
 
 (defn wait-health [url attempts]
   (loop [n attempts]
@@ -226,7 +244,7 @@
       (if-not (wait-health base 60)
         (assoc opts :green/exit 1
                :green/err "HTTPS health did not become ready with a valid certificate")
-        (let [site (site-id ip)
+        (let [site (acceptance-site-id opts ip)
               before (event-count ip)]
           (if-not (integer? before)
             (assoc opts :green/exit 1

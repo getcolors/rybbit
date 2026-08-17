@@ -27,6 +27,10 @@ compute-prevent-destroy: true
 # first account. Leave this false until you have registered, then set it true.
 rybbit-disable-signup: false
 
+# Acceptance sends its synthetic pageview here rather than to a real site, so
+# converges do not write test rows into your analytics. Created on demand.
+rybbit-acceptance-site-domain: colors-acceptance.invalid
+
 rybbit-host: rybbit.example.com
 
 # Pinned official images for multi-container stack

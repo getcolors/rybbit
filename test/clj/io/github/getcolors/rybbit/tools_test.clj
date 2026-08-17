@@ -85,3 +85,21 @@
     (is (str/includes? src ":type \"pageview\""))
     (is (str/includes? src ":pathname"))
     (is (not (str/includes? src ":name \"pageview\"")))))
+
+(deftest acceptance-uses-a-throwaway-site
+  ;; Sending to whichever site was first wrote a synthetic pageview into the
+  ;; operator's real analytics on every converge.
+  (let [src (slurp "src/clj/io/github/getcolors/rybbit/tools.clj")]
+    (is (str/includes? src "acceptance-site-id"))
+    (is (str/includes? src "rybbit-acceptance-site-domain"))
+    ;; No falling back to an arbitrary existing site.
+    (is (not (re-find #"select site_id from sites limit 1" src)))
+    ;; Created only when absent, so a converge is idempotent.
+    (is (str/includes? src "where not exists"))))
+
+(deftest site-id-is-taken-from-the-last-line
+  ;; psql prints "INSERT 0 1" before the selected id; the whole output is not
+  ;; a site id.
+  (let [src (slurp "src/clj/io/github/getcolors/rybbit/tools.clj")]
+    (is (str/includes? src "str/split-lines"))
+    (is (str/includes? src "re-matches #\"\\d+\""))))
