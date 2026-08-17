@@ -14,10 +14,17 @@ set +a
 # Dump PostgreSQL
 docker compose exec -T postgres pg_dump -U "${POSTGRES_USER:-rybbit}" -d "${POSTGRES_DB:-rybbit}" > "$tmp_dir/postgres.sql"
 
-# Backup ClickHouse metadata and data
-docker compose exec -T clickhouse clickhouse-client --user "${CLICKHOUSE_USER:-default}" --password "${CLICKHOUSE_PASSWORD:-rybbit}" --query "BACKUP DATABASE ${CLICKHOUSE_DB:-rybbit} TO File('$tmp_dir/clickhouse.zip')" || {
-  tar -czf "$tmp_dir/clickhouse-data.tar.gz" -C <{ clickhouse-data-dir }> .
-}
+# ClickHouse's own BACKUP statement produces a consistent archive. Taring the
+# data directory while the server runs races its merges -- parts vanish mid-read
+# -- and yields an archive that cannot be restored, so there is deliberately no
+# fallback here: a failed ClickHouse backup must fail the whole run. File()
+# destinations must sit under the server's backups.allowed_path, which is on the
+# bind mount and therefore visible from the host.
+docker compose exec -T -u root clickhouse sh -c 'mkdir -p /var/lib/clickhouse/backups && chown clickhouse:clickhouse /var/lib/clickhouse/backups'
+docker compose exec -T clickhouse clickhouse-client \
+  --user "${CLICKHOUSE_USER:-default}" --password "${CLICKHOUSE_PASSWORD:-}" \
+  --query "BACKUP DATABASE ${CLICKHOUSE_DB:-rybbit} TO File('/var/lib/clickhouse/backups/clickhouse-$stamp.zip')"
+mv "<{ clickhouse-data-dir }>/backups/clickhouse-$stamp.zip" "$tmp_dir/clickhouse.zip"
 
 # Consolidate backup archive
 tar -czf "<{ rybbit-backup-dir }>/rybbit-$stamp.tar.gz" -C "$tmp_dir" .

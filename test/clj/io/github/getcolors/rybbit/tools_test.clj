@@ -36,3 +36,12 @@
     (is (not (tools/fresh-backup? [(entry 0 "2026-08-17T02:30:05Z")] since)))
     (is (not (tools/fresh-backup? [] since)))
     (is (not (tools/fresh-backup? nil since)))))
+
+(deftest clickhouse-backup-is-native-and-has-no-torn-fallback
+  ;; A hot tar of the data directory races running merges: parts vanish
+  ;; mid-read, tar exits non-zero and set -e aborts before the upload, which is
+  ;; how this deployment ran for hours with nothing reaching R2.
+  (let [backup (slurp "src/resources/io/github/getcolors/rybbit/tools/ansible/backup")]
+    (is (str/includes? backup "BACKUP DATABASE"))
+    (is (str/includes? backup "/var/lib/clickhouse/backups/"))
+    (is (not (re-find #"\|\|\s*\{?\s*\n?\s*tar -czf" backup)))))
