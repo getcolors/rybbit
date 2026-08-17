@@ -8,6 +8,16 @@
     encode zstd gzip
     request_body max_size 10MB
 
+    # Access logging is off by default in Caddy, so only errors and TLS events
+    # were recorded and a successful request left no trace anywhere. Ingestion
+    # was undebuggable: there was no request-level evidence that an event ever
+    # arrived. Logs go to stdout, which is where docker logs reads, and the
+    # compose service bounds them so a busy endpoint cannot fill the disk.
+    log {
+        output stdout
+        format json
+    }
+
     handle /api/* {
         reverse_proxy backend:3001
     }
