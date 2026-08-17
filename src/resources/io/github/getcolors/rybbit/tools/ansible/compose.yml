@@ -1,0 +1,112 @@
+services:
+  caddy:
+    image: <{ caddy-image }>
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/lib/rybbit/caddy/data:/data
+      - /var/lib/rybbit/caddy/config:/config
+    depends_on:
+      - backend
+      - client
+    networks:
+      - internal
+
+  postgres:
+    image: <{ postgres-image }>
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    volumes:
+      - <{ postgres-data-dir }>:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  clickhouse:
+    image: <{ clickhouse-image }>
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    volumes:
+      - <{ clickhouse-data-dir }>:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  redis:
+    image: <{ redis-image }>
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    volumes:
+      - <{ redis-data-dir }>:/data
+    command: >
+      sh -c 'redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --appendfsync everysec --maxmemory-policy noeviction'
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - internal
+
+  backend:
+    image: <{ rybbit-backend-image }>
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    environment:
+      - NODE_ENV=production
+      - CLICKHOUSE_HOST=http://clickhouse:8123
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CLUSTER_WORKERS=2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3001/api/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  client:
+    image: <{ rybbit-client-image }>
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_BACKEND_URL=https://<{ rybbit-host }>
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

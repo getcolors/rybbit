@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd /opt/rybbit
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+mkdir -p <{ rybbit-backup-dir }>
+tmp_dir=$(mktemp -d /tmp/rybbit-backup-XXXXXX)
+trap 'rm -rf "$tmp_dir"' EXIT
+
+# Source credentials from retained stack.env
+set -a
+[ -f /opt/rybbit/stack.env ] && source /opt/rybbit/stack.env
+set +a
+
+# Dump PostgreSQL
+docker compose exec -T postgres pg_dump -U "${POSTGRES_USER:-rybbit}" -d "${POSTGRES_DB:-rybbit}" > "$tmp_dir/postgres.sql"
+
+# Backup ClickHouse metadata and data
+docker compose exec -T clickhouse clickhouse-client --user "${CLICKHOUSE_USER:-default}" --password "${CLICKHOUSE_PASSWORD:-rybbit}" --query "BACKUP DATABASE ${CLICKHOUSE_DB:-rybbit} TO File('$tmp_dir/clickhouse.zip')" || {
+  tar -czf "$tmp_dir/clickhouse-data.tar.gz" -C <{ clickhouse-data-dir }> .
+}
+
+# Consolidate backup archive
+tar -czf "<{ rybbit-backup-dir }>/rybbit-$stamp.tar.gz" -C "$tmp_dir" .
+
+# Upload to R2 via rclone
+RCLONE_CONFIG_R2_TYPE=s3 \
+RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
+RCLONE_CONFIG_R2_REGION=auto \
+RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true \
+RCLONE_CONFIG_R2_ACCESS_KEY_ID="$RYBBIT_BACKUP_R2_ACCESS_KEY_ID" \
+RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY" \
+RCLONE_CONFIG_R2_ENDPOINT="<{ rybbit-backup-r2-endpoint }>" \
+rclone copyto "<{ rybbit-backup-dir }>/rybbit-$stamp.tar.gz" \
+  "r2:<{ rybbit-backup-r2-bucket }>/<{ profile }>/rybbit-$stamp.tar.gz"
+
+find <{ rybbit-backup-dir }> -type f -name 'rybbit-*.tar.gz' -mtime +<{ rybbit-backup-retention-days }> -delete
