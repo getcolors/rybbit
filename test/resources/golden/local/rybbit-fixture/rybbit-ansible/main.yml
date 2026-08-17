@@ -21,6 +21,20 @@
     - ansible.builtin.file: {path: "/var/backups/rybbit", state: directory, mode: "0700"}
     - ansible.builtin.file: {path: /var/lib/rybbit/caddy/data, state: directory, mode: "0755"}
     - ansible.builtin.file: {path: /var/lib/rybbit/caddy/config, state: directory, mode: "0755"}
+    - ansible.builtin.file: {path: /var/lib/rybbit/clickhouse-users.d, state: directory, mode: "0755"}
+    - name: Install ClickHouse experimental JSON type configuration
+      ansible.builtin.copy:
+        dest: /var/lib/rybbit/clickhouse-users.d/allow-json.xml
+        mode: "0644"
+        content: |
+          <clickhouse>
+              <profiles>
+                  <default>
+                      <allow_experimental_json_type>1</allow_experimental_json_type>
+                      <allow_experimental_object_type>1</allow_experimental_object_type>
+                  </default>
+              </profiles>
+          </clickhouse>
     - name: Generate retained database and auth secrets
       ansible.builtin.shell: |
         set -euo pipefail

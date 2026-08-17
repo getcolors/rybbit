@@ -4,7 +4,7 @@
       "rybbit" : {
         "content" : "192.0.2.10",
         "name" : "rybbit.example.com",
-        "proxied" : true,
+        "proxied" : false,
         "ttl" : 1,
         "type" : "A",
         "zone_id" : "${data.cloudflare_zone.zone.id}"

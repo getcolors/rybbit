@@ -50,17 +50,32 @@
       :else (merge result (fallback-params opts) (output-params result)))))
 
 (defn zone-id [zone] (format "${data.cloudflare_zone.zone.id}" zone))
+(defn dns-data [opts]
+  (let [host (str (:rybbit-host opts))
+        zone (or (:cloudflare-zone opts)
+                 (let [parts (str/split host #"\.")]
+                   (if (> (count parts) 2)
+                     (str/join "." (rest parts))
+                     host)))]
+    (assoc opts
+           :ip (or (:ip opts) (:ip (fallback-params opts)))
+           :cloudflare-zone zone
+           :cloudflare-proxied (if (some? (:cloudflare-proxied opts))
+                                 (:cloudflare-proxied opts)
+                                 false))))
+
 (defn dns-json [opts]
   (tofu/constructs-json
    [(tofu/construct :resource :cloudflare_dns_record :rybbit
-                    {:zone_id (zone-id (:rybbit-host opts))
+                    {:zone_id (zone-id (:cloudflare-zone opts))
                      :name (:rybbit-host opts) :content (:ip opts) :type "A"
-                     :proxied true :ttl 1})]))
+                     :proxied (boolean (:cloudflare-proxied opts)) :ttl 1})]))
+
 (defn dns-step [opts]
   (let [dir (tool-dir opts dns-tool)
-        data (assoc opts :ip (or (:ip opts) (:ip (fallback-params opts))))
+        data (dns-data opts)
         specs [(spec (template "dns" "main.tf") (str dir "/main.tf") data)
-                (raw-spec (str dir "/record.tf.json") (dns-json data))]]
+               (raw-spec (str dir "/record.tf.json") (dns-json data))]]
     (tofu/tofu-with-spec opts specs {:dir dir :env (credential-env opts :provider-dns)})))
 
 (defn inventory [opts]

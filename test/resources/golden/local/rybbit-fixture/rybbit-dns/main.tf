@@ -5,5 +5,5 @@ terraform {
 }
 provider "cloudflare" {}
 data "cloudflare_zone" "zone" {
-  filter = { name = "rybbit.example.com" }
+  filter = { name = "example.com" }
 }
