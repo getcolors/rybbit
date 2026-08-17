@@ -68,7 +68,7 @@ ssh &lt;droplet&gt; 'journalctl -u rybbit-backup.service --since=-24h'</code></p
   <p>Retention applies to the bucket and the disk, both at <code>rybbit-backup-retention-days</code>.</p>
   <p>To recover, unpack the newest archive, restore <code>postgres.sql</code> into an empty PostgreSQL 17 database and <code>clickhouse.zip</code> with ClickHouse <code>RESTORE</code>, then verify the dashboard and event ingestion before moving DNS. Never test restoration over live data.</p>
 
-  <div class="callout warning"><strong>Prevent-destroy is not a backup.</strong> Deleting compute does not authorize deleting R2 objects, the discovered default VPC, unrelated DNS, or any other provider resource. Note also that the Rybbit backend and client images are tracked as <code>:latest</code>; pin them before you depend on reproducing a deployment exactly.</div>
+  <div class="callout warning"><strong>Prevent-destroy is not a backup.</strong> Deleting compute does not authorize deleting R2 objects, the discovered default VPC, unrelated DNS, or any other provider resource. The backend and client images are pinned by digest, so a converge cannot pick up a new upstream build without a change here.</div>
 
   <h2>Development and source</h2>
   <pre><code>bb test
