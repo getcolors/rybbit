@@ -6,7 +6,7 @@
 (def profile-par (green-cli/par-name :profile))
 (def required
   [:profile :workdir :provider-compute :provider-dns :provider-backend
-   :compute-prevent-destroy :rybbit-host
+   :compute-prevent-destroy :rybbit-host :rybbit-disable-signup
    :postgres-image :clickhouse-image :redis-image
    :rybbit-backend-image :rybbit-client-image :caddy-image
    :postgres-data-dir :clickhouse-data-dir :redis-data-dir :rybbit-backup-dir

@@ -4,7 +4,6 @@ cd /opt/rybbit
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 mkdir -p <{ rybbit-backup-dir }>
 tmp_dir=$(mktemp -d /tmp/rybbit-backup-XXXXXX)
-trap 'rm -rf "$tmp_dir"' EXIT
 
 # Source credentials from retained stack.env
 set -a
@@ -26,6 +25,26 @@ docker compose exec -T clickhouse clickhouse-client \
   --query "BACKUP DATABASE ${CLICKHOUSE_DB:-rybbit} TO File('/var/lib/clickhouse/backups/clickhouse-$stamp.zip')"
 mv "<{ clickhouse-data-dir }>/backups/clickhouse-$stamp.zip" "$tmp_dir/clickhouse.zip"
 
+# An archive that exists is not an archive that restores. Load the dump into a
+# scratch database and require the schema back, so a truncated or malformed
+# dump fails the unit instead of sitting in the bucket looking like a backup.
+check_db="rybbit_restore_check_$stamp"
+cleanup_check() {
+  docker compose exec -T postgres psql -U "${POSTGRES_USER:-rybbit}" -d postgres -q \
+    -c "DROP DATABASE IF EXISTS \"$check_db\"" >/dev/null 2>&1 || true
+}
+trap 'cleanup_check; rm -rf "$tmp_dir"' EXIT
+docker compose exec -T postgres psql -U "${POSTGRES_USER:-rybbit}" -d postgres -q -v ON_ERROR_STOP=1 \
+  -c "CREATE DATABASE \"$check_db\""
+docker compose exec -T postgres psql -U "${POSTGRES_USER:-rybbit}" -d "$check_db" -q -v ON_ERROR_STOP=1 \
+  < "$tmp_dir/postgres.sql" >/dev/null
+tables=$(docker compose exec -T postgres psql -U "${POSTGRES_USER:-rybbit}" -d "$check_db" -tAc \
+  "select count(*) from information_schema.tables where table_schema = 'public'" | tr -d '[:space:]')
+if [ "${tables:-0}" -lt 1 ]; then
+  echo "restore check restored no tables from postgres.sql" >&2
+  exit 1
+fi
+
 # Consolidate backup archive
 tar -czf "<{ rybbit-backup-dir }>/rybbit-$stamp.tar.gz" -C "$tmp_dir" .
 
@@ -39,5 +58,16 @@ RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY" \
 RCLONE_CONFIG_R2_ENDPOINT="<{ rybbit-backup-r2-endpoint }>" \
 rclone copyto "<{ rybbit-backup-dir }>/rybbit-$stamp.tar.gz" \
   "r2:<{ rybbit-backup-r2-bucket }>/<{ profile }>/rybbit-$stamp.tar.gz"
+
+# Retention has to apply to the bucket, not only to this disk: pruning locally
+# while R2 keeps every object forever is not a retention policy.
+RCLONE_CONFIG_R2_TYPE=s3 \
+RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
+RCLONE_CONFIG_R2_REGION=auto \
+RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true \
+RCLONE_CONFIG_R2_ACCESS_KEY_ID="$RYBBIT_BACKUP_R2_ACCESS_KEY_ID" \
+RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY" \
+RCLONE_CONFIG_R2_ENDPOINT="<{ rybbit-backup-r2-endpoint }>" \
+rclone delete --min-age <{ rybbit-backup-retention-days }>d "r2:<{ rybbit-backup-r2-bucket }>/<{ profile }>"
 
 find <{ rybbit-backup-dir }> -type f -name 'rybbit-*.tar.gz' -mtime +<{ rybbit-backup-retention-days }> -delete

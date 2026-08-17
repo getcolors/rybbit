@@ -45,3 +45,21 @@
     (is (str/includes? backup "BACKUP DATABASE"))
     (is (str/includes? backup "/var/lib/clickhouse/backups/"))
     (is (not (re-find #"\|\|\s*\{?\s*\n?\s*tar -czf" backup)))))
+
+(def backup-script
+  (delay (slurp "src/resources/io/github/getcolors/rybbit/tools/ansible/backup")))
+
+(deftest backup-proves-it-restores-and-prunes-the-bucket
+  (is (str/includes? @backup-script "CREATE DATABASE"))
+  (is (str/includes? @backup-script "information_schema.tables"))
+  (is (str/includes? @backup-script "rclone delete --min-age"))
+  (let [restore (str/index-of @backup-script "restore check restored no tables")
+        upload (str/index-of @backup-script "rclone copyto")]
+    (is (< restore upload))))
+
+(deftest signup-is-desired-state
+  ;; Open registration on a public analytics instance should be a decision in
+  ;; colors.yml, not a constant in the playbook.
+  (let [playbook (slurp "src/resources/io/github/getcolors/rybbit/tools/ansible/main.yml")]
+    (is (not (str/includes? playbook "DISABLE_SIGNUP=false")))
+    (is (str/includes? playbook "DISABLE_SIGNUP=<{ rybbit-disable-signup }>"))))
