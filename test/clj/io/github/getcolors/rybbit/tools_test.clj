@@ -77,3 +77,11 @@
 (deftest validation-accepts-a-digest-pin
   (is (= [] (validate/state-errors (fixture))))
   (is (seq (validate/state-errors (fixture :rybbit-backend-image "no-tag-at-all")))))
+
+(deftest track-payload-uses-the-api-discriminator
+  ;; Rybbit validates a `type` discriminator and rejects the request outright
+  ;; without it; `name` produced a 400 that only surfaced once a site existed.
+  (let [src (slurp "src/clj/io/github/getcolors/rybbit/tools.clj")]
+    (is (str/includes? src ":type \"pageview\""))
+    (is (str/includes? src ":pathname"))
+    (is (not (str/includes? src ":name \"pageview\"")))))

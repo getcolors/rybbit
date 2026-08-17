@@ -163,12 +163,16 @@
             (pos? n) (do (Thread/sleep 5000) (recur (dec n)))
             :else false))))
 
-(defn send-event [base site]
+(defn send-event
+  "Rybbit discriminates on `type`, not `name`: the API answers 400 with
+   \"Invalid discriminator value\" for anything else. This went unnoticed while
+   no site existed, because the step reports :not-configured and sends nothing."
+  [base site]
   (http-status ["-X" "POST" "-H" "content-type: application/json"
                 "-H" "User-Agent: Mozilla/5.0 (Colors acceptance)"
                 "--data" (json/generate-string
-                          {:name "pageview" :site_id site
-                           :data {:path "/colors-acceptance"}})
+                          {:type "pageview" :site_id site
+                           :pathname "/colors-acceptance"})
                 (str base "/api/track")]))
 
 (defn ingestion-verdict [status before after]
