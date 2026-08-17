@@ -15,6 +15,12 @@ resource "digitalocean_droplet" "rybbit" {
   name     = "<{ digitalocean-name }>"
   region   = "<{ digitalocean-region }>"
   size     = "<{ digitalocean-size }>"
+  # DigitalOcean cannot shrink a disk, so the provider default of
+  # resizing it too makes any downsize fail with "This size is not
+  # available because it has a smaller disk". False is the CPU-and-RAM
+  # only resize: the droplet keeps the disk it has, so moving down a
+  # plan is possible and never destroys the volume.
+  resize_disk = <{ digitalocean-resize-disk }>
   image    = "<{ digitalocean-image }>"
   vpc_uuid = data.digitalocean_vpc.default.id
   ssh_keys = ["<{ digitalocean-ssh-keys }>"]

@@ -174,3 +174,14 @@
   (is (str/includes? @caddyfile "trusted_proxies static"))
   (is (str/includes? @caddyfile "162.158.0.0/15"))
   (is (str/includes? @caddyfile "2400:cb00::/32")))
+
+(def infrastructure-tf
+  (delay (slurp "src/resources/io/github/getcolors/rybbit/tools/infrastructure/main.tf")))
+
+(deftest downsizing-does-not-require-shrinking-the-disk
+  ;; DigitalOcean cannot shrink a disk, so the provider's default of resizing
+  ;; it alongside the plan makes any move to a smaller size fail the apply with
+  ;; "This size is not available because it has a smaller disk" -- observed on
+  ;; a live deployment. False is the CPU-and-RAM-only resize, which leaves the
+  ;; volume alone, so it must be desired state rather than the provider default.
+  (is (str/includes? @infrastructure-tf "resize_disk = <{ digitalocean-resize-disk }>")))

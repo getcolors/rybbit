@@ -11,6 +11,11 @@
 
 (def defaults {:provider-compute "digitalocean" :provider-dns "cloudflare"
                :provider-backend "local" :compute-prevent-destroy true
+               ;; Grow the disk with the plan by default, which is what an
+               ;; upsize wants. Set false to move down a plan: DigitalOcean
+               ;; cannot shrink a disk, so a downsize is only possible as a
+               ;; CPU-and-RAM-only resize that leaves the volume alone.
+               :digitalocean-resize-disk true
                :workdir ".colors"})
 (defn state-output [opts]
   (try (some-> (tofu/outputs (tools/tool-dir opts tools/infrastructure-tool)
