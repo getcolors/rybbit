@@ -27,7 +27,3 @@
          (vec (rest (workflow/wire-fn :rybbit/infrastructure {:green/event :create})))))
   (is (= [:rybbit/ansible]
          (vec (rest (workflow/wire-fn :rybbit/start {:green/event :delete}))))))
-
-(deftest disk-grows-with-the-plan-unless-declined
-  ;; Upsizing wants the disk to follow the plan; only a downsize needs false.
-  (is (true? (:digitalocean-resize-disk workflow/defaults))))

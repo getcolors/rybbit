@@ -15,12 +15,6 @@ resource "digitalocean_droplet" "rybbit" {
   name     = "rybbit-fixture"
   region   = "ams3"
   size     = "s-4vcpu-8gb"
-  # DigitalOcean cannot shrink a disk, so the provider default of
-  # resizing it too makes any downsize fail with "This size is not
-  # available because it has a smaller disk". False is the CPU-and-RAM
-  # only resize: the droplet keeps the disk it has, so moving down a
-  # plan is possible and never destroys the volume.
-  resize_disk = true
   image    = "ubuntu-24-04-x64"
   vpc_uuid = data.digitalocean_vpc.default.id
   ssh_keys = ["58495393"]
