@@ -4,6 +4,32 @@
             [io.github.getcolors.once.validate :as once-validate]))
 
 (def profile-par (green-cli/par-name :profile))
+
+(def compute-providers
+  "provider-compute -> what that choice implies.
+
+  `:required` are the non-secret keys that provider's template interpolates,
+  `:secrets` the credentials it needs through COLORS_PAR_*, and `:tofu-env` the
+  subset OpenTofu reads from the process environment itself. Keeping the three
+  together is what stops a provider being validated against one set of keys and
+  run with another -- a stage exporting a credential nobody checked for, or a
+  check demanding a key no template uses.
+
+  Both providers need firewall sources because this package puts a provider
+  firewall in front of the host; ONCE's compute templates have none, so its
+  registry entries are shorter."
+  {"digitalocean"
+   {:required [:digitalocean-name :digitalocean-region :digitalocean-size
+               :digitalocean-image :digitalocean-ssh-keys
+               :digitalocean-ssh-sources :digitalocean-http-sources]
+    :secrets [:do-token]
+    :tofu-env {:do-token "DIGITALOCEAN_TOKEN"}}
+   "vultr"
+   {:required [:vultr-name :vultr-region :vultr-plan :vultr-os-id
+               :vultr-ssh-keys :vultr-ssh-sources :vultr-http-sources]
+    :secrets [:vultr-api-key]
+    :tofu-env {:vultr-api-key "VULTR_API_KEY"}}})
+
 (def required
   [:profile :workdir :provider-compute :provider-dns :provider-backend
    :compute-prevent-destroy :rybbit-host :rybbit-disable-signup
@@ -12,9 +38,7 @@
    :postgres-data-dir :clickhouse-data-dir :redis-data-dir :rybbit-backup-dir
    :rybbit-backup-r2-bucket :rybbit-backup-r2-endpoint
    :rybbit-backup-r2-region :rybbit-backup-oncalendar
-   :rybbit-backup-retention-days :digitalocean-name :digitalocean-region
-   :digitalocean-size :digitalocean-image :digitalocean-ssh-keys
-   :digitalocean-ssh-sources :digitalocean-http-sources
+   :rybbit-backup-retention-days
    :r2-bucket :r2-endpoint])
 (def host-re #"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$")
 (def image-re
@@ -26,12 +50,17 @@
   (when (not-empty (str (get env profile-par)))
     [(str profile-par " is set; profile must come from colors.yml only")]))
 
+(defn compute-provider [opts] (get compute-providers (:provider-compute opts)))
+
 (defn state-errors [opts]
   (vec
    (concat
-    (for [k required :when (missing? (get opts k))] (str k " is required"))
-    (when-not (= "digitalocean" (:provider-compute opts))
-      [":provider-compute must be digitalocean"])
+    (for [k (concat required (:required (compute-provider opts)))
+          :when (missing? (get opts k))]
+      (str k " is required"))
+    (when-not (compute-provider opts)
+      [(str ":provider-compute must be one of "
+            (str/join ", " (sort (keys compute-providers))))])
     (when-not (= "cloudflare" (:provider-dns opts))
       [":provider-dns must be cloudflare"])
     (when-not (contains? #{"local" "s3" "r2"} (:provider-backend opts))
@@ -59,7 +88,8 @@
   (:secrets (get-in once-validate/providers
                     [:provider-backend (:provider-backend opts)])))
 (defn secret-errors [opts]
-  (let [keys (concat [:do-token :cloudflare-api-token
+  (let [keys (concat (:secrets (compute-provider opts))
+                     [:cloudflare-api-token
                       :rybbit-backup-r2-access-key-id
                       :rybbit-backup-r2-secret-access-key]
                      (backend-secrets opts))]
@@ -68,7 +98,7 @@
 
 (defn tofu-env [opts slot]
   (case slot
-    :provider-compute {:do-token "DIGITALOCEAN_TOKEN"}
+    :provider-compute (:tofu-env (compute-provider opts) {})
     :provider-dns {:cloudflare-api-token "CLOUDFLARE_API_TOKEN"}
     :provider-backend (:tofu-env (get-in once-validate/providers
                                          [:provider-backend (:provider-backend opts)]) {})

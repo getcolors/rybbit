@@ -20,7 +20,7 @@
     # than in the compute template because it is provider-independent, and
     # because on Vultr the instance attribute is ForceNew -- setting it there
     # would make a rename destroy the disk.
-    - ansible.builtin.hostname: {name: "rybbit-fixture"}
+    - ansible.builtin.hostname: {name: "rybbit-vultr-fixture"}
     - ansible.builtin.systemd_service: {name: docker, enabled: true, state: started}
     - ansible.builtin.file: {path: /opt/rybbit, state: directory, mode: "0755"}
     - ansible.builtin.file: {path: "/var/lib/rybbit/postgres", state: directory, mode: "0700"}

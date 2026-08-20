@@ -1,0 +1,11 @@
+---
+- name: Stop Rybbit application stack before infrastructure deletion
+  hosts: rybbit
+  become: true
+  gather_facts: false
+  tasks:
+    - ansible.builtin.command: docker compose down
+      args: {chdir: /opt/rybbit}
+      register: compose_down
+      changed_when: "'Removed' in (compose_down.stderr + compose_down.stdout)"
+      failed_when: false

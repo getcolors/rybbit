@@ -3,11 +3,48 @@
             [clojure.test :refer [deftest is]]
             [io.github.getcolors.rybbit.tools :as tools]
             [io.github.getcolors.rybbit.validate :as validate]
-            [io.github.getcolors.rybbit.validate-test :refer [fixture]]))
+            [io.github.getcolors.rybbit.validate-test :refer [fixture vultr-fixture]]))
 
 (deftest infrastructure-discovers-default-vpc
   (let [data (tools/infrastructure-data (fixture))]
     (is (= ["0.0.0.0/0" "::/0"] (tools/cidrs data :digitalocean-http-sources)))))
+
+(deftest compute-keys-follow-the-selected-provider
+  ;; Firewall sources are named after the provider, so a step reaching them
+  ;; through a fixed digitalocean- prefix silently renders an empty list on
+  ;; any other provider -- a firewall with no rules rather than an error.
+  (is (= ["0.0.0.0/0" "::/0"]
+         (tools/cidrs (tools/infrastructure-data (vultr-fixture)) :vultr-http-sources)))
+  (is (str/includes? (:ssh-sources-hcl (tools/infrastructure-data (vultr-fixture))) "0.0.0.0/0"))
+  (is (str/includes? (:http-sources-hcl (tools/infrastructure-data (fixture))) "0.0.0.0/0")))
+
+(deftest hostname-is-provider-neutral
+  ;; The playbook used digitalocean-name, which renders empty on Vultr.
+  (is (= "rybbit-fixture" (tools/compute-name (fixture))))
+  (is (= "rybbit-vultr-fixture" (tools/compute-name (vultr-fixture))))
+  ;; Build and dry-run render without a provider name at all.
+  (is (= "rybbit-fixture" (tools/compute-name (fixture :digitalocean-name nil))))
+  (is (str/includes? (slurp "src/resources/io/github/getcolors/rybbit/tools/ansible/main.yml")
+                     "<{ compute-name }>")))
+
+(deftest vultr-cidrs-split-into-address-and-prefix
+  ;; Vultr takes subnet and subnet_size as separate fields, per address family.
+  (is (= {:subnet "0.0.0.0" :subnet-size 0 :ip-type "v4"} (tools/cidr-parts "0.0.0.0/0")))
+  (is (= {:subnet "::" :subnet-size 0 :ip-type "v6"} (tools/cidr-parts "::/0")))
+  (is (= {:subnet "203.0.113.4" :subnet-size 32 :ip-type "v4"} (tools/cidr-parts "203.0.113.4")))
+  (is (= {:subnet "2001:db8::1" :subnet-size 128 :ip-type "v6"} (tools/cidr-parts "2001:db8::1"))))
+
+(deftest vultr-firewall-opens-ssh-http-and-http3
+  (let [json (tools/vultr-firewall-json (vultr-fixture))]
+    ;; HTTP/3 rides UDP 443. Caddy advertises it through alt-svc whether or not
+    ;; the port is reachable, so leaving it closed degrades every visitor to TCP
+    ;; without erroring anywhere.
+    (is (str/includes? json "\"protocol\" : \"udp\""))
+    (is (str/includes? json "\"subnet_size\" : 0"))
+    (is (str/includes? json "\"subnet\" : \"::\""))
+    ;; Four services across two address families, and nothing else open.
+    (is (= 8 (count (re-seq #"\"firewall_group_id\"" json))))
+    (is (= #{"\"22\"" "\"80\"" "\"443\""} (set (map second (re-seq #"\"port\" : (\"\d+\")" json)))))))
 
 (deftest dns-is-apex-and-proxied
   (let [json (tools/dns-json (tools/dns-data (assoc (fixture) :ip "192.0.2.10")))]

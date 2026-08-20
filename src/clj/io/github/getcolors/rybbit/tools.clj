@@ -33,10 +33,53 @@
 (defn output-params [result]
   (some-> (get-in result [:tofu/outputs :params]) walk/keywordize-keys))
 
+(defn compute-key
+  "Desired state names compute keys after the provider, so the shared steps have
+   to reach them through the selected provider rather than a fixed prefix."
+  [opts suffix]
+  (keyword (str (:provider-compute opts) "-" suffix)))
+
+(defn compute-name
+  "The machine's name. Every provider carries its own `<provider>-name`; the
+   profile is the fallback so build and dry-run render without one."
+  [opts]
+  (or (not-empty (str (get opts (compute-key opts "name")))) (str (:profile opts))))
+
 (defn infrastructure-data [opts]
   (assoc opts
-         :ssh-sources-hcl (tofu/hcl-list (cidrs opts :digitalocean-ssh-sources))
-         :http-sources-hcl (tofu/hcl-list (cidrs opts :digitalocean-http-sources))))
+         :ssh-sources-hcl (tofu/hcl-list (cidrs opts (compute-key opts "ssh-sources")))
+         :http-sources-hcl (tofu/hcl-list (cidrs opts (compute-key opts "http-sources")))))
+
+(defn cidr-parts
+  "Vultr takes an address and a prefix length as separate fields, per address
+   family, rather than a CIDR string. `0.0.0.0/0` is subnet 0.0.0.0 size 0."
+  [cidr]
+  (let [s (str/trim (str cidr))
+        [addr size] (str/split s #"/")
+        v6? (str/includes? addr ":")]
+    {:subnet addr
+     :subnet-size (parse-long (or size (if v6? "128" "32")))
+     :ip-type (if v6? "v6" "v4")}))
+
+(defn vultr-firewall-json
+  "One rule per protocol, address family and port. UDP 443 carries HTTP/3, which
+   Caddy advertises through alt-svc whether or not the port is reachable, so
+   omitting it degrades every visitor to TCP silently rather than erroring."
+  [opts]
+  (let [group "${vultr_firewall_group.rybbit.id}"
+        entries (concat
+                 (for [c (cidrs opts :vultr-ssh-sources)] ["ssh" "tcp" "22" c])
+                 (for [c (cidrs opts :vultr-http-sources)] ["http" "tcp" "80" c])
+                 (for [c (cidrs opts :vultr-http-sources)] ["https" "tcp" "443" c])
+                 (for [c (cidrs opts :vultr-http-sources)] ["quic" "udp" "443" c]))]
+    (tofu/constructs-json
+     (for [[i [tag proto port cidr]] (map-indexed vector entries)
+           :let [{:keys [subnet subnet-size ip-type]} (cidr-parts cidr)]]
+       (tofu/construct :resource :vultr_firewall_rule
+                       (keyword (str tag "_" ip-type "_" i))
+                       {:firewall_group_id group :protocol proto :ip_type ip-type
+                        :subnet subnet :subnet_size subnet-size :port port
+                        :notes (str tag " " ip-type)})))))
 (defn resolved-compute
   "Refuse to hand 192.0.2.10 to Ansible. That is the documentation address the
    credential-free build and dry-run paths render with; on a real converge a
@@ -49,10 +92,21 @@
            :green/err (str "compute produced no ip output; refusing to converge "
                            "against the documentation address"))))
 
+(defn infrastructure-specs
+  "Providers are selected by template directory, not by conditionals inside one
+   file. Vultr additionally needs its firewall rules generated, because their
+   number depends on how many source CIDRs desired state lists."
+  [opts]
+  (let [dir (tool-dir opts infrastructure-tool)
+        data (infrastructure-data opts)]
+    (cond-> [(spec (template (str "infrastructure." (:provider-compute opts)) "main.tf")
+                   (str dir "/main.tf") data)]
+      (= "vultr" (:provider-compute opts))
+      (conj (raw-spec (str dir "/firewall.tf.json") (vultr-firewall-json data))))))
+
 (defn infrastructure-step [opts]
   (let [dir (tool-dir opts infrastructure-tool)
-        specs [(spec (template "infrastructure" "main.tf") (str dir "/main.tf")
-                     (infrastructure-data opts))]
+        specs (infrastructure-specs opts)
         result (tofu/tofu-with-spec opts specs
                                     {:dir dir :env (credential-env opts :provider-compute)})]
     (cond
@@ -106,6 +160,7 @@
 (defn ansible-data [opts]
   (assoc opts
          :ip (or (:ip opts) "192.0.2.10")
+         :compute-name (compute-name opts)
          :rybbit-backup-access-key "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}"
          :rybbit-backup-secret-key "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}"))
 (defn ansible-specs [opts]
