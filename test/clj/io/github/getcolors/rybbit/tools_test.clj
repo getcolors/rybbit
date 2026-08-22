@@ -1,6 +1,7 @@
 (ns io.github.getcolors.rybbit.tools-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [green.ansible :as ansible]
             [io.github.getcolors.rybbit.tools :as tools]
             [io.github.getcolors.rybbit.validate :as validate]
             [io.github.getcolors.rybbit.validate-test :refer [fixture vultr-fixture]]))
@@ -68,6 +69,24 @@
   (let [inventory (tools/inventory (assoc (fixture) :ip "192.0.2.10"))]
     (is (str/includes? inventory "192.0.2.10"))
     (is (str/includes? inventory "rybbit-fixture"))))
+
+(deftest delete-cleanup-skips-when-state-has-no-compute
+  ;; With the instance already gone the inventory would render 192.0.2.10;
+  ;; there is no host to reach, so the step must not run the playbook and the
+  ;; teardown must continue past it.
+  (with-redefs [ansible/ansible-with-spec
+                (fn [& _] (throw (ex-info "playbook must not run" {})))]
+    (let [r (tools/ansible-step (fixture :green/event :delete))]
+      (is (= 0 (:green/exit r)))
+      (is (= :skipped-no-compute (:rybbit/cleanup r))))))
+
+(deftest delete-cleanup-targets-the-adopted-address
+  ;; When the start step recovered the instance address from state, the
+  ;; cleanup playbook runs against it, never the documentation fallback.
+  (with-redefs [ansible/ansible-with-spec
+                (fn [opts _ _] (assoc opts :green/exit 0 ::ran-against (:ip opts)))]
+    (let [r (tools/ansible-step (fixture :green/event :delete :ip "203.0.113.7"))]
+      (is (= "203.0.113.7" (::ran-against r))))))
 
 (deftest ingestion-is-judged-by-the-stored-row-not-the-status
   (is (= :ingested (tools/ingestion-verdict "200" 4 5)))
