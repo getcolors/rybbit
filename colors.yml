@@ -27,7 +27,7 @@ compute-prevent-destroy: true
 # first account. Leave this false until you have registered, then set it true.
 rybbit-disable-signup: false
 
-rybbit-host: rybbit.bigconfig.online
+rybbit-host: rybbit.getcolors.ai
 
 # Pinned official images for multi-container stack
 postgres-image: postgres:17-alpine
