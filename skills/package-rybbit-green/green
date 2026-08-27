@@ -11,12 +11,12 @@
 ;; cloud resources, and overriding it from the environment can only point rybbit
 ;; at another project's state.
 ;;
-;; This file is both the skill payload and the repository entry point — ./green
-;; in the project root is a symlink to it. It deliberately holds no logic of its
-;; own: validation, the graph and the steps all live in the `rybbit` library,
-;; where the test suite reaches them. A copied payload is the one place in this
-;; project where code cannot be tested, so nothing that can live elsewhere
-;; should live here. scripts/launcher.sh covers what remains.
+;; This file is both the skill payload and the repository entry point —
+;; green/green in the repository is a symlink to it. It deliberately holds no
+;; logic of its own: validation, the graph and the steps all live in the
+;; `rybbit` library, where the test suite reaches them. A copied payload is the
+;; one place in this project where code cannot be tested, so nothing that can
+;; live elsewhere should live here. scripts/launcher.sh covers what remains.
 
 (require '[babashka.fs :as fs]
          '[clojure.java.io :as io]
@@ -50,7 +50,7 @@
 ;; cannot resolve its own library says so rather than inventing a SHA or
 ;; silently falling back to whatever is lying around. `bb pin` refuses to stamp
 ;; a dirty or unpushed HEAD for the same reason.
-(def ^:private rybbit-sha "ee41ad96ac508897319e536d5b177504f0eb8c9a")
+(def ^:private rybbit-sha nil)
 
 (def ^:private rybbit-git-url "https://github.com/getcolors/rybbit.git")
 (def ^:private green-git-url "https://github.com/getcolors/green.git")
@@ -69,7 +69,7 @@
 
 (def ^:private bootstrap-error
   (when (and (System/getProperty "babashka.version") (not resolved?))
-    (let [rybbit (lib-coord "RYBBIT_LIB_ROOT" rybbit-git-url rybbit-sha nil)
+    (let [rybbit (lib-coord "RYBBIT_LIB_ROOT" rybbit-git-url rybbit-sha "green")
           green (lib-coord "GREEN_LIB_ROOT" green-git-url nil nil)
           once (lib-coord "ONCE_LIB_ROOT" once-git-url nil "green")]
       (if-not rybbit

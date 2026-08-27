@@ -15,7 +15,7 @@ for i in "${!fixtures[@]}"; do
   profile=${profiles[$i]}
   fixture="$tmp/$name"
   sed "s#WORKDIR#$tmp/work#" "$root/test/fixtures/$name" > "$fixture"
-  RYBBIT_LIB_ROOT="$root" "$root/green" build -f "$fixture" >/dev/null
+  (cd "$root/green" && RYBBIT_LIB_ROOT="$root" ./green build -f "$fixture" >/dev/null)
   actual="$tmp/work/$profile"
   golden="$root/test/resources/golden/local/$profile"
 
