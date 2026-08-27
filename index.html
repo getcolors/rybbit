@@ -13,9 +13,9 @@
 <script src="https://rybbit.getcolors.ai/api/script.js" data-site-id="9fb9c41a6d49" defer></script>
 </head>
 <body><main>
-  <p class="eyebrow">GREEN PACKAGE SKILL · DIGITALOCEAN · RYBBIT</p>
+  <p class="eyebrow">GREEN · RED · BLUE PACKAGE SKILL · DIGITALOCEAN · RYBBIT</p>
   <h1>Rybbit Package Skill</h1>
-  <p class="lead">A reproducible Green workflow for one production-oriented Rybbit analytics platform: PostgreSQL 17 for metadata and authentication, ClickHouse for columnar events, Redis, and the Rybbit backend and client behind Caddy, with Cloudflare DNS and TLS.</p>
+  <p class="lead">A reproducible Green, Red, and Blue workflow for one production-oriented Rybbit analytics platform: PostgreSQL 17 for metadata and authentication, ClickHouse for columnar events, Redis, and the Rybbit backend and client behind Caddy, with Cloudflare DNS and TLS.</p>
 
   <div class="callout"><strong>ClickHouse is backed up with its own <code>BACKUP</code> statement.</strong> A hot <code>tar</code> of the data directory races the server’s merges and produces an archive that cannot be restored. This package takes a consistent native backup, verifies the PostgreSQL dump restores, and only then uploads — a failed backup fails the unit rather than leaving a plausible-looking object in the bucket.</div>
 
@@ -25,6 +25,7 @@ cp .agents/skills/package-rybbit-green/green ./green
 chmod +x green
 ./green build
 ./green create --dry-run</code></pre>
+<p>Equivalent Red and Blue skills ship <code>red</code> and <code>blue</code> launchers.</p>
   <p><code>build</code> renders the deployment without credentials. The dry-run walks the whole workflow while skipping every side effect. A real <code>create</code> or <code>delete</code> touches live infrastructure and requires separate authorization.</p>
 
   <h2>Architecture and sizing</h2>
