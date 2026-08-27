@@ -5,6 +5,12 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      # Caddy serves HTTP/3 over UDP and advertises it via alt-svc whether or
+      # not the port is reachable. Without this publication browsers attempt
+      # QUIC, get nothing, and fall back to TCP -- which works, so it surfaces
+      # as intermittent slowness rather than an error. The provider firewall
+      # opens the same hole.
+      - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - /var/lib/rybbit/caddy/data:/data

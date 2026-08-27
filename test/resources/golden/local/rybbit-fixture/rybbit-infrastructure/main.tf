@@ -39,6 +39,14 @@ resource "digitalocean_firewall" "rybbit" {
     port_range       = "443"
     source_addresses = ["0.0.0.0/0", "::/0"]
   }
+  # UDP 443 carries HTTP/3, which Caddy advertises via alt-svc whether or not
+  # the port is reachable -- the Vultr template's generated rules open the same
+  # hole (the "quic" rule in vultr-firewall-json).
+  inbound_rule {
+    protocol         = "udp"
+    port_range       = "443"
+    source_addresses = ["0.0.0.0/0", "::/0"]
+  }
   outbound_rule {
     protocol              = "tcp"
     port_range            = "1-65535"
