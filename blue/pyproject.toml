@@ -10,7 +10,7 @@ dependencies = [
 
 [tool.uv.sources]
 blue = { git = "https://github.com/getcolors/blue.git", rev = "290f313ead5ca162875c33a049c880da017eae09" }
-package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "98d3cfa2c743b89a72bac0252c258f9edeedcad7" }
+package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "04f9623159358882f6407618f804f70ce7067e54" }
 
 # The ONCE pin above carries its own, older blue pin
 # (369c5aafea790a03b649b3513003651e672f3f57); without this override the two git

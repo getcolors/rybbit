@@ -1,0 +1,188 @@
+---
+- name: Install production single-node Rybbit analytics stack
+  hosts: rybbit
+  become: true
+  gather_facts: false
+  pre_tasks:
+    - ansible.builtin.wait_for_connection: {connect_timeout: 10, delay: 5, sleep: 5, timeout: 600}
+    - ansible.builtin.setup:
+  tasks:
+    - name: Install Docker and backup tooling
+      ansible.builtin.apt:
+        name: [docker.io, docker-compose-v2, rclone, ca-certificates, curl, openssl]
+        state: present
+        # No cache_valid_time: a fresh droplet ships apt lists old enough to
+        # name package versions the archive has already superseded, and the
+        # install then fails on a 404 rather than fetching a current index.
+        update_cache: true
+    # The provider resource name is desired state; the machine should agree with
+    # it rather than keeping whatever the image was built with. Set here rather
+    # than in the compute template because it is provider-independent, and
+    # because on Vultr the instance attribute is ForceNew -- setting it there
+    # would make a rename destroy the disk.
+    - ansible.builtin.hostname: {name: "rybbit-vultr-keygen-fixture"}
+    - ansible.builtin.systemd_service: {name: docker, enabled: true, state: started}
+    - ansible.builtin.file: {path: /opt/rybbit, state: directory, mode: "0755"}
+    - ansible.builtin.file: {path: "/var/lib/rybbit/postgres", state: directory, mode: "0700"}
+    - ansible.builtin.file: {path: "/var/lib/rybbit/clickhouse", state: directory, mode: "0755"}
+    - ansible.builtin.file: {path: "/var/lib/rybbit/redis", state: directory, mode: "0700"}
+    - ansible.builtin.file: {path: "/var/backups/rybbit", state: directory, mode: "0700"}
+    - ansible.builtin.file: {path: /var/lib/rybbit/caddy/data, state: directory, mode: "0755"}
+    - ansible.builtin.file: {path: /var/lib/rybbit/caddy/config, state: directory, mode: "0755"}
+    - ansible.builtin.file: {path: /var/lib/rybbit/clickhouse-users.d, state: directory, mode: "0755"}
+    - name: Install ClickHouse experimental JSON type configuration
+      ansible.builtin.copy:
+        dest: /var/lib/rybbit/clickhouse-users.d/allow-json.xml
+        mode: "0644"
+        content: |
+          <clickhouse>
+              <profiles>
+                  <default>
+                      <allow_experimental_json_type>1</allow_experimental_json_type>
+                      <allow_experimental_object_type>1</allow_experimental_object_type>
+                  </default>
+              </profiles>
+          </clickhouse>
+    - name: Generate retained database and auth secrets
+      ansible.builtin.shell: |
+        set -euo pipefail
+        umask 077
+        pg_pwd=$(openssl rand -hex 24)
+        ch_pwd=$(openssl rand -hex 24)
+        redis_pwd=$(openssl rand -hex 24)
+        auth_secret=$(openssl rand -hex 32)
+        cat <<EOF > /opt/rybbit/stack.env
+        POSTGRES_USER=rybbit
+        POSTGRES_DB=rybbit
+        POSTGRES_PASSWORD=$pg_pwd
+        CLICKHOUSE_USER=default
+        CLICKHOUSE_DB=rybbit
+        CLICKHOUSE_PASSWORD=$ch_pwd
+        REDIS_PASSWORD=$redis_pwd
+        BETTER_AUTH_SECRET=$auth_secret
+        DOMAIN_NAME=rybbit.example.com
+        BASE_URL=https://rybbit.example.com
+        DISABLE_SIGNUP=false
+        DISABLE_TELEMETRY=true
+        EOF
+      args: {executable: /bin/bash, creates: /opt/rybbit/stack.env}
+      no_log: true
+    - ansible.builtin.file: {path: /opt/rybbit/stack.env, mode: "0600", owner: root, group: root}
+    # stack.env is written once so the generated secrets survive a converge,
+    # which also froze every non-secret line at whatever the first run wrote:
+    # flipping rybbit-disable-signup afterwards changed nothing, silently, on a
+    # setting that decides whether strangers can register, and renaming
+    # rybbit-host left the backend rejecting sign-ins from the new origin with
+    # a 403. Keep the desired-state lines in step, and recreate the services
+    # that read them -- an env_file is consulted when a container is created,
+    # not while it runs.
+    - name: Keep desired-state settings in step
+      ansible.builtin.lineinfile:
+        path: /opt/rybbit/stack.env
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+      loop:
+        - {key: DISABLE_SIGNUP, value: "false"}
+        - {key: DOMAIN_NAME, value: "rybbit.example.com"}
+        - {key: BASE_URL, value: "https://rybbit.example.com"}
+      register: rybbit_stack_env
+    - name: Recreate the services that read the changed settings
+      ansible.builtin.command: docker compose up -d --force-recreate backend client
+      args: {chdir: /opt/rybbit}
+      when: rybbit_stack_env.changed
+    - name: Install stack configuration
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "{{ item.mode | default('0644') }}"
+      loop:
+        - {src: compose.yml, dest: /opt/rybbit/compose.yml}
+        - {src: Caddyfile, dest: /opt/rybbit/Caddyfile}
+        - {src: backup, dest: /usr/local/sbin/rybbit-backup, mode: "0700"}
+      notify: Restart Rybbit stack
+    - name: Install backup credentials outside generated and tracked files
+      ansible.builtin.copy:
+        dest: /etc/rybbit-backup.env
+        mode: "0600"
+        content: |
+          RYBBIT_BACKUP_R2_ACCESS_KEY_ID={{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}
+          RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY={{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}
+      no_log: true
+    - name: Install backup service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/rybbit-backup.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Rybbit database and analytics backups
+          Requires=docker.service
+          After=docker.service
+          [Service]
+          Type=oneshot
+          EnvironmentFile=/etc/rybbit-backup.env
+          ExecStart=/usr/local/sbin/rybbit-backup
+      notify: Reload systemd
+    - name: Install backup timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/rybbit-backup.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Daily Rybbit backup
+          [Timer]
+          OnCalendar=*-*-* 02:30:00
+          Persistent=true
+          RandomizedDelaySec=300
+          [Install]
+          WantedBy=timers.target
+      notify: Reload systemd
+    - ansible.builtin.meta: flush_handlers
+    - name: Start Rybbit stack
+      ansible.builtin.command: docker compose up -d --remove-orphans
+      args: {chdir: /opt/rybbit}
+      register: compose_up
+      changed_when: "'Created' in (compose_up.stdout + compose_up.stderr) or 'Recreated' in (compose_up.stdout + compose_up.stderr) or 'Starting' in (compose_up.stdout + compose_up.stderr)"
+    - ansible.builtin.systemd_service: {name: rybbit-backup.timer, enabled: true, state: started}
+    # Caddy mounts its Caddyfile as a single file, so ansible.builtin.copy
+    # replaces it by rename and the running container keeps the inode it
+    # started with -- the host file looks correct while Caddy serves the old
+    # config, and `docker compose up -d` does not recreate a service whose
+    # definition is unchanged. Compare what Caddy is actually running, and
+    # key the recreate on that rather than on a changed flag, so a converge
+    # that finds the container stale for any reason repairs it.
+    - name: Read the Caddyfile checksum Caddy is serving
+      ansible.builtin.shell: |
+        docker compose exec -T caddy sha256sum /etc/caddy/Caddyfile 2>/dev/null | awk '{print $1}'
+      args: {chdir: /opt/rybbit, executable: /bin/bash}
+      register: caddy_running_config
+      changed_when: false
+      failed_when: false
+    - ansible.builtin.stat: {path: /opt/rybbit/Caddyfile, checksum_algorithm: sha256}
+      register: caddyfile_desired
+    - name: Reload Caddy when its configuration is stale
+      ansible.builtin.command: docker compose up -d --force-recreate caddy
+      args: {chdir: /opt/rybbit}
+      when: (caddy_running_config.stdout | default('') | trim) != caddyfile_desired.stat.checksum
+    - name: Wait for backend health endpoint inside container
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - exec
+          - -T
+          - backend
+          - wget
+          - -qO-
+          - http://127.0.0.1:3001/api/health
+      args: {chdir: /opt/rybbit}
+      register: local_health
+      changed_when: false
+      retries: 60
+      delay: 5
+      until: local_health.rc == 0
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd_service: {daemon_reload: true}
+    - name: Restart Rybbit stack
+      ansible.builtin.command: docker compose up -d --remove-orphans
+      args: {chdir: /opt/rybbit}

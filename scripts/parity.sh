@@ -9,9 +9,11 @@ set -euo pipefail
 # (red/resources and blue's embedded resources are copies of green's tree, not
 # references to it).
 #
-# Two fixtures, because rybbit supports two compute providers and providers are
-# selected by template directory: parity means the DigitalOcean tree and the
-# Vultr tree (with its generated firewall.tf.json) both hold in every colour.
+# Four fixtures, one per advertised compute provider per keypair mode: the SSH
+# Keypair Standard has two modes and parity means both keygen and opt-out hold
+# in every colour, and providers are selected by template directory, so the
+# DigitalOcean tree and the Vultr tree (with its generated firewall.tf.json)
+# must both hold in every colour too.
 #
 # Renders resolve each colour's package from this working tree (the
 # RYBBIT_LIB_ROOT overrides), while green, once, red, and blue stay on their
@@ -36,6 +38,8 @@ build_variant() {
 
 build_variant colors
 build_variant colors-vultr
+build_variant keygen
+build_variant keygen-vultr
 
 diff -r "$root/green/src/resources/io/github/getcolors/rybbit" "$root/red/resources"
 diff -r "$root/green/src/resources/io/github/getcolors/rybbit" "$root/blue/src/package_rybbit_blue/resources"

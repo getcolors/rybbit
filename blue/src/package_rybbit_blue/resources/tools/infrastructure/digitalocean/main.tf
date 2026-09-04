@@ -11,41 +11,51 @@ data "digitalocean_vpc" "default" {
   name = "default-<{ digitalocean-region }>"
 }
 
-resource "digitalocean_droplet" "rybbit" {
-  name     = "<{ digitalocean-name }>"
+<% if ssh-keygen %># The machine keypair this deployment generated and owns (SSH Keypair
+# Standard): the account resource is named after the profile and lives in this
+# stack's state, which is what makes its ownership decidable. Never reference a
+# literal key id here in keygen mode.
+resource "digitalocean_ssh_key" "machine" {
+  name       = "<{ profile }>"
+  public_key = trimspace(file("<{ ssh-public-key-path }>"))
+}
+
+<% endif %>resource "digitalocean_droplet" "rybbit" {
+  name     = "<{ compute-name }>"
   region   = "<{ digitalocean-region }>"
   size     = "<{ digitalocean-size }>"
   image    = "<{ digitalocean-image }>"
   vpc_uuid = data.digitalocean_vpc.default.id
-  ssh_keys = ["<{ digitalocean-ssh-keys }>"]
-  lifecycle { prevent_destroy = <{ compute-prevent-destroy }> }
+<% if ssh-keygen %>  ssh_keys = [digitalocean_ssh_key.machine.id]
+<% else %>  ssh_keys = ["<{ digitalocean-ssh-keys }>"]
+<% endif %>  lifecycle { prevent_destroy = <{ compute-prevent-destroy }> }
 }
 
 resource "digitalocean_firewall" "rybbit" {
-  name        = "<{ digitalocean-name }>-firewall"
+  name        = "<{ compute-name }>-firewall"
   droplet_ids = [digitalocean_droplet.rybbit.id]
   inbound_rule {
     protocol         = "tcp"
     port_range       = "22"
     source_addresses = <{ ssh-sources-hcl|safe }>
   }
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "80"
-    source_addresses = <{ http-sources-hcl|safe }>
-  }
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "443"
-    source_addresses = <{ http-sources-hcl|safe }>
-  }
-  # UDP 443 carries HTTP/3, which Caddy advertises via alt-svc whether or not
-  # the port is reachable -- the Vultr template's generated rules open the same
-  # hole (the "quic" rule in vultr-firewall-json).
-  inbound_rule {
-    protocol         = "udp"
-    port_range       = "443"
-    source_addresses = <{ http-sources-hcl|safe }>
+  # 80 and 443 from the HTTP sources, and nothing else. A rule with no source
+  # is not "closed" to DigitalOcean but an API error, so the HTTP rules are
+  # emitted only when there is a source to name; an empty http-sources list
+  # means no public HTTP at all. UDP 443 carries HTTP/3, which Caddy advertises
+  # via alt-svc whether or not the port is reachable -- the Vultr template's
+  # generated rules open the same hole (the "quic" rule in vultr-firewall-json).
+  dynamic "inbound_rule" {
+    for_each = length(<{ http-sources-hcl|safe }>) > 0 ? [
+      { protocol = "tcp", port_range = "80" },
+      { protocol = "tcp", port_range = "443" },
+      { protocol = "udp", port_range = "443" },
+    ] : []
+    content {
+      protocol         = inbound_rule.value.protocol
+      port_range       = inbound_rule.value.port_range
+      source_addresses = <{ http-sources-hcl|safe }>
+    }
   }
   outbound_rule {
     protocol              = "tcp"
@@ -65,5 +75,5 @@ resource "digitalocean_firewall" "rybbit" {
 }
 
 output "params" {
-  value = { ip = digitalocean_droplet.rybbit.ipv4_address, user = "root", sudoer = "root", name = "<{ profile }>" }
+  value = { provider = "digitalocean", ip = digitalocean_droplet.rybbit.ipv4_address, user = "root", sudoer = "root", name = "<{ compute-name }>"<% if ssh-keygen %>, ssh_key_id = digitalocean_ssh_key.machine.id<% endif %> }
 }

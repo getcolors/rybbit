@@ -2,7 +2,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from conftest import fixture, vultr_fixture
+from blue.scaffold import render_template
+from conftest import fixture, keygen, keygen_vultr, vultr_fixture
 from package_rybbit_blue import tools
 
 RESOURCES = Path(tools.__file__).parent / "resources"
@@ -11,6 +12,13 @@ SOURCE = (Path(tools.__file__)).read_text()
 
 def resource(name: str) -> str:
     return (RESOURCES / name).read_text()
+
+
+def render_infrastructure(opts: dict) -> str:
+    """The compute template for `opts`' provider, rendered as `build` would."""
+    return render_template(
+        tools.template(f"infrastructure.{opts.get('provider-compute')}", "main.tf"),
+        tools.infrastructure_data(opts), tools.template_opts)
 
 
 def test_infrastructure_discovers_default_vpc():
@@ -35,6 +43,52 @@ def test_hostname_is_provider_neutral():
     # Build and dry-run render without a provider name at all.
     assert tools.compute_name(fixture({"digitalocean-name": None})) == "rybbit-fixture"
     assert "<{ compute-name }>" in resource("tools/ansible/main.yml")
+
+
+def test_infrastructure_data_carries_the_name_and_the_keypair_mode():
+    # One resolved name and one mode reach every template, so no template
+    # branches on the provider or re-derives either.
+    optout = tools.infrastructure_data(vultr_fixture())
+    assert optout["compute-name"] == "rybbit-vultr-fixture"
+    assert optout["ssh-keygen"] is False
+    generated = tools.infrastructure_data(keygen_vultr())
+    assert generated["compute-name"] == "rybbit-vultr-keygen-fixture"
+    assert generated["ssh-keygen"] is True
+    assert tools.ansible_data(keygen())["ssh-keygen"] is True
+    assert tools.ansible_data(fixture())["ssh-keygen"] is False
+
+
+def test_templates_name_the_machine_from_one_resolved_value():
+    # Every label -- droplet name, instance label, firewall group and names,
+    # and params.name -- interpolates compute-name, never a provider key or
+    # the profile directly, so an override and the fallback land everywhere.
+    for provider in ["vultr", "digitalocean"]:
+        template = resource(f"tools/infrastructure/{provider}/main.tf")
+        assert f"<{{ {provider}-name }}>" not in template
+        assert 'name = "<{ compute-name }>"' in template
+        assert f'provider = "{provider}"' in template
+    rendered = render_infrastructure(vultr_fixture({"vultr-name": "custom-label"}))
+    assert 'label = "custom-label"' in rendered
+    assert 'description = "custom-label"' in rendered
+    assert 'name = "custom-label"' in rendered
+
+
+def test_empty_http_sources_renders_no_public_http():
+    # An empty `<provider>-http-sources` is allowed and means no public HTTP:
+    # Vultr's generated rules simply omit http, https and quic, and the
+    # DigitalOcean rules are a dynamic block over an empty list. SSH stays.
+    json_text = tools.vultr_firewall_json(
+        tools.infrastructure_data(vultr_fixture({"vultr-http-sources": []})))
+    assert len(re.findall(r'"firewall_group_id"', json_text)) == 2
+    assert set(re.findall(r'"port" : ("\d+")', json_text)) == {'"22"'}
+    assert "udp" not in json_text
+    empty = render_infrastructure(fixture({"digitalocean-http-sources": []}))
+    assert "length([]) > 0 ? [" in empty
+    assert "source_addresses = []" in empty
+    assert 'port_range       = "22"' in empty
+    full = render_infrastructure(fixture())
+    assert 'length(["0.0.0.0/0", "::/0"]) > 0 ? [' in full
+    assert '{ protocol = "udp", port_range = "443" }' in full
 
 
 def test_vultr_cidrs_split_into_address_and_prefix():

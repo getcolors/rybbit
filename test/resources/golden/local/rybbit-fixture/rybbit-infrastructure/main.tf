@@ -29,23 +29,23 @@ resource "digitalocean_firewall" "rybbit" {
     port_range       = "22"
     source_addresses = ["0.0.0.0/0", "::/0"]
   }
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "80"
-    source_addresses = ["0.0.0.0/0", "::/0"]
-  }
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "443"
-    source_addresses = ["0.0.0.0/0", "::/0"]
-  }
-  # UDP 443 carries HTTP/3, which Caddy advertises via alt-svc whether or not
-  # the port is reachable -- the Vultr template's generated rules open the same
-  # hole (the "quic" rule in vultr-firewall-json).
-  inbound_rule {
-    protocol         = "udp"
-    port_range       = "443"
-    source_addresses = ["0.0.0.0/0", "::/0"]
+  # 80 and 443 from the HTTP sources, and nothing else. A rule with no source
+  # is not "closed" to DigitalOcean but an API error, so the HTTP rules are
+  # emitted only when there is a source to name; an empty http-sources list
+  # means no public HTTP at all. UDP 443 carries HTTP/3, which Caddy advertises
+  # via alt-svc whether or not the port is reachable -- the Vultr template's
+  # generated rules open the same hole (the "quic" rule in vultr-firewall-json).
+  dynamic "inbound_rule" {
+    for_each = length(["0.0.0.0/0", "::/0"]) > 0 ? [
+      { protocol = "tcp", port_range = "80" },
+      { protocol = "tcp", port_range = "443" },
+      { protocol = "udp", port_range = "443" },
+    ] : []
+    content {
+      protocol         = inbound_rule.value.protocol
+      port_range       = inbound_rule.value.port_range
+      source_addresses = ["0.0.0.0/0", "::/0"]
+    }
   }
   outbound_rule {
     protocol              = "tcp"
@@ -65,5 +65,5 @@ resource "digitalocean_firewall" "rybbit" {
 }
 
 output "params" {
-  value = { ip = digitalocean_droplet.rybbit.ipv4_address, user = "root", sudoer = "root", name = "rybbit-fixture" }
+  value = { provider = "digitalocean", ip = digitalocean_droplet.rybbit.ipv4_address, user = "root", sudoer = "root", name = "rybbit-fixture" }
 }

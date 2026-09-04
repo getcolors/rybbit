@@ -14,8 +14,9 @@ from blue.ansible import ansible_with_spec
 from blue.cli import stage_dir
 from blue.runtime import runtime
 from blue.scaffold import PRESERVE_JINJA_DELIMITERS, content_spec, scaffold
+from package_once_blue import compute as once_compute
 
-from . import validate
+from . import ssh, validate
 
 infrastructure_tool = "rybbit-infrastructure"
 dns_tool = "rybbit-dns"
@@ -41,11 +42,9 @@ def raw_spec(target: str, content: str) -> dict:
     return content_spec(target, content)
 
 
-def cidrs(opts: dict, key: str) -> list[str]:
-    value = opts.get(key)
-    xs = value if isinstance(value, list) else re.split(
-        r"[,\s]+", "" if value is None else str(value))
-    return [s for s in (str(x).strip() for x in xs) if s]
+# The source lists as validate parses them, so the template and the
+# validator can never disagree about what an entry is. ONCE's.
+cidrs = validate.cidrs
 
 
 def credential_env(opts: dict, *slots: str) -> dict[str, str] | None:
@@ -64,32 +63,30 @@ def backend_credential_env(opts: dict) -> dict[str, str] | None:
     return credential_env(opts)
 
 
-def fallback_params(opts: dict) -> dict:
-    return {"ip": "192.0.2.10", "user": "root", "sudoer": "root",
-            "name": opts.get("profile")}
+# What `build` and `--dry-run` render in place of a compute output: the
+# documentation address, shaped like the selected provider's real `params` so
+# every later stage sees the same keys either way. ONCE's.
+fallback_params = once_compute.fallback_params
 
+# Refuse to hand 192.0.2.10 to Ansible on a real converge whose compute output
+# carries no `ip`. ONCE's; `infrastructure_step` is what wires it.
+resolved_compute = once_compute.resolved_compute
 
-def output_params(result: dict) -> dict | None:
-    return (result.get("tofu/outputs") or {}).get("params")
+# `<provider>-<suffix>`, the selected provider's key. ONCE's, via validate.
+compute_key = validate.compute_key
 
-
-def compute_key(opts: dict, suffix: str) -> str:
-    """Desired state names compute keys after the provider, so the shared steps
-    have to reach them through the selected provider rather than a fixed
-    prefix."""
-    return f"{opts.get('provider-compute')}-{suffix}"
-
-
-def compute_name(opts: dict) -> str:
-    """The machine's name. Every provider carries its own `<provider>-name`;
-    the profile is the fallback so build and dry-run render without one."""
-    name = "" if opts.get(compute_key(opts, "name")) is None \
-        else str(opts.get(compute_key(opts, "name")))
-    return name if name else str(opts.get("profile"))
+# The machine's name: `<provider>-name` when present, else the profile. ONCE's,
+# via validate; the templates and the playbook derive every label from it.
+compute_name = validate.compute_name
 
 
 def infrastructure_data(opts: dict) -> dict:
+    """Template values for the compute stage. The name, the keypair mode and
+    the source lists are resolved here once, so a template interpolates values
+    and never branches on which provider it belongs to."""
     return {**opts,
+            "ssh-keygen": validate.keygen(opts),
+            "compute-name": compute_name(opts),
             "ssh-sources-hcl": tofu.hcl_list(cidrs(opts, compute_key(opts, "ssh-sources"))),
             "http-sources-hcl": tofu.hcl_list(cidrs(opts, compute_key(opts, "http-sources")))}
 
@@ -110,7 +107,9 @@ def vultr_firewall_json(opts: dict) -> str:
     """One rule per protocol, address family and port. UDP 443 carries HTTP/3,
     which Caddy advertises through alt-svc whether or not the port is
     reachable, so omitting it degrades every visitor to TCP silently rather
-    than erroring."""
+    than erroring. An empty `vultr-http-sources` lists nothing to open, so no
+    http, https or quic rule is emitted: no public HTTP, and the same rule
+    names otherwise."""
     group = "${vultr_firewall_group.rybbit.id}"
     entries = [*[("ssh", "tcp", "22", c) for c in cidrs(opts, "vultr-ssh-sources")],
                *[("http", "tcp", "80", c) for c in cidrs(opts, "vultr-http-sources")],
@@ -126,18 +125,6 @@ def vultr_firewall_json(opts: dict) -> str:
              "subnet_size": parts["subnet-size"], "port": port,
              "notes": f"{tag} {parts['ip-type']}"}))
     return tofu.constructs_json(constructs)
-
-
-def resolved_compute(result: dict, fallback: dict, outputs: dict | None) -> dict:
-    """Refuse to hand 192.0.2.10 to Ansible. That is the documentation address
-    the credential-free build and dry-run paths render with; on a real converge
-    a missing compute output must fail loudly rather than quietly point the
-    whole playbook at TEST-NET."""
-    if outputs and outputs.get("ip"):
-        return {**result, **fallback, **outputs}
-    return {**result, "blue/exit": 1,
-            "blue/err": ("compute produced no ip output; refusing to converge "
-                         "against the documentation address")}
 
 
 def infrastructure_specs(opts: dict) -> list[dict]:
@@ -164,7 +151,7 @@ async def infrastructure_step(opts: dict) -> dict:
         return {**result, **fallback_params(opts)}
     if opts.get("blue/event") == "delete":
         return result
-    return resolved_compute(result, fallback_params(opts), output_params(result))
+    return resolved_compute(result, fallback_params(opts), once_compute.output_params(result))
 
 
 def dns_data(opts: dict) -> dict:
@@ -230,8 +217,12 @@ def inventory(opts: dict) -> str:
 
 
 def ansible_data(opts: dict) -> dict:
+    """Template values for the Ansible stage. `ssh-private-key-path` reaches
+    ansible.cfg so convergence uses the deployment's own key in keygen mode,
+    where nothing guarantees an agent holds it."""
     return {**opts,
             "ip": opts.get("ip") or "192.0.2.10",
+            "ssh-keygen": validate.keygen(opts),
             "compute-name": compute_name(opts),
             "rybbit-backup-access-key":
                 "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
@@ -281,10 +272,14 @@ async def http_status(args: list[str]) -> str | None:
     return str(r.out or "").strip() if r.exit == 0 else None
 
 
-async def ssh_out(ip, command: str, timeout: int) -> str | None:
+async def ssh_out(opts: dict, ip, command: str, timeout: int) -> str | None:
+    """Run `command` on the host over ssh. The deployment's own key is selected
+    in keygen mode (`ssh.identity_args`), because nothing guarantees an agent
+    holds it; opt-out mode adds nothing and relies on the operator's
+    identities."""
     r = await runtime.exec(
         ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
-         f"root@{ip}", command],
+         *ssh.identity_args(opts), f"root@{ip}", command],
         timeout_ms=timeout)
     return str(r.out or "").strip() if r.exit == 0 else None
 
@@ -292,20 +287,20 @@ async def ssh_out(ip, command: str, timeout: int) -> str | None:
 stack_env = "cd /opt/rybbit && set -a && . ./stack.env && set +a && "
 
 
-async def psql(ip, query: str) -> str | None:
+async def psql(opts: dict, ip, query: str) -> str | None:
     out = str(await ssh_out(
-        ip, stack_env
+        opts, ip, stack_env
         + 'docker compose exec -T postgres psql -U "$POSTGRES_USER"'
         + f" -d \"$POSTGRES_DB\" -tAc '{query}'", 30000) or "")
     return out or None
 
 
-async def clickhouse(ip, query: str) -> str | None:
+async def clickhouse(opts: dict, ip, query: str) -> str | None:
     """Resolve the events table from system.tables so the check does not
     hardcode a database name Rybbit's migrations own, then run `query` against
     it."""
     out = str(await ssh_out(
-        ip, stack_env
+        opts, ip, stack_env
         + "t=$(docker compose exec -T clickhouse clickhouse-client"
         + ' --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD"'
         + " --query \"SELECT database || '.' || name FROM system.tables"
@@ -317,8 +312,8 @@ async def clickhouse(ip, query: str) -> str | None:
     return out or None
 
 
-async def event_count(ip) -> int | None:
-    out = await clickhouse(ip, "SELECT count() FROM $t")
+async def event_count(opts: dict, ip) -> int | None:
+    out = await clickhouse(opts, ip, "SELECT count() FROM $t")
     if out is None:
         return None
     try:
@@ -339,7 +334,7 @@ async def acceptance_site_id(opts: dict, ip) -> str | None:
     # remote shell, where an escaped quote would arrive at psql verbatim.
     # psql prints the INSERT tag before the SELECT result, so take the id off
     # the last line rather than the whole output.
-    out = await psql(ip, (
+    out = await psql(opts, ip, (
         "insert into sites (name, domain, organization_id) "
         f"select $$colors-acceptance$$, $${domain}$$, "
         "(select id from organization limit 1) "
@@ -387,10 +382,10 @@ def ingestion_verdict(status, before, after) -> str:
     return "rejected"
 
 
-async def wait_ingested(ip, baseline: int, attempts: int) -> int | None:
+async def wait_ingested(opts: dict, ip, baseline: int, attempts: int) -> int | None:
     n = attempts
     while True:
-        after = await event_count(ip)
+        after = await event_count(opts, ip)
         if isinstance(after, int) and after > baseline:
             return after
         if n > 0:
@@ -406,7 +401,7 @@ rclone_env = ("RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare "
 
 async def backup_listing(opts: dict, ip) -> list[dict] | None:
     out = await ssh_out(
-        ip,
+        opts, ip,
         "set -a; . /etc/rybbit-backup.env; set +a; " + rclone_env
         + ' RCLONE_CONFIG_R2_ACCESS_KEY_ID="$RYBBIT_BACKUP_R2_ACCESS_KEY_ID"'
         + ' RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY"'
@@ -441,9 +436,9 @@ def fresh_backup(entries, since: datetime) -> bool:
     return False
 
 
-async def run_backup(ip) -> str | None:
+async def run_backup(opts: dict, ip) -> str | None:
     return await ssh_out(
-        ip, "systemctl start rybbit-backup.service"
+        opts, ip, "systemctl start rybbit-backup.service"
         " && systemctl is-active rybbit-backup.timer", 300000)
 
 
@@ -457,7 +452,7 @@ async def acceptance_step(opts: dict) -> dict:
         return {**opts, "blue/exit": 1,
                 "blue/err": "HTTPS health did not become ready with a valid certificate"}
     site = await acceptance_site_id(opts, ip)
-    before = await event_count(ip)
+    before = await event_count(opts, ip)
     if not isinstance(before, int):
         return {**opts, "blue/exit": 1,
                 "blue/err": "could not read the ClickHouse events table to verify ingestion"}
@@ -465,12 +460,12 @@ async def acceptance_step(opts: dict) -> dict:
         verdict = "not-configured"
     else:
         status = await send_event(base, site)
-        after = await wait_ingested(ip, before, 10)
+        after = await wait_ingested(opts, ip, before, 10)
         verdict = ingestion_verdict(status, before, after)
     if verdict in ("dropped", "rejected", "unreachable"):
         return {**opts, "blue/exit": 1,
                 "blue/err": f"synthetic event was not ingested: {verdict}"}
-    if await run_backup(ip) is None:
+    if await run_backup(opts, ip) is None:
         return {**opts, "blue/exit": 1,
                 "blue/err": "backup unit or timer is not healthy"}
     if not fresh_backup(await backup_listing(opts, ip), since):

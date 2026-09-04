@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Provision a private single-node Rybbit web and product analytics service with PostgreSQL 17, ClickHouse, Redis, Cloudflare HTTPS, and restore-verified R2 backups on one DigitalOcean Droplet.">
+  <meta name="description" content="Provision a private single-node Rybbit web and product analytics service with PostgreSQL 17, ClickHouse, Redis, Cloudflare HTTPS, and restore-verified R2 backups on one DigitalOcean Droplet or one Vultr instance.">
   <title>Rybbit Package Skill — getcolors</title>
   <style>
     :root{color-scheme:light;--ink:#1f2328;--muted:#59636e;--line:#d0d7de;--soft:#f6f8fa;--blue:#0969da;--green:#1a7f37;--warn:#9a6700}*{box-sizing:border-box}body{margin:0;color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:920px;margin:auto;padding:64px 28px 100px}h1{font-size:52px;line-height:1.05;margin:0}h2{margin-top:54px;padding-bottom:8px;border-bottom:1px solid var(--line)}h3{margin-top:30px}.lead{font-size:20px;color:var(--muted);max-width:790px}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{padding:18px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--soft)}:not(pre)>code{padding:.12em .35em;border-radius:5px;background:var(--soft)}a{color:var(--blue)}.eyebrow{color:var(--green);font-weight:700;letter-spacing:.08em}.callout{padding:16px 18px;border-left:4px solid var(--green);background:#dafbe1}.warning{border-color:var(--warn);background:#fff8c5}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{padding:18px;border:1px solid var(--line);border-radius:8px}.card h3{margin-top:0}table{width:100%;border-collapse:collapse;margin-top:18px}th,td{padding:9px 12px;border:1px solid var(--line);text-align:left;vertical-align:top;font-size:14.5px}th{background:var(--soft)}@media(max-width:650px){main{padding-top:38px}.grid{grid-template-columns:1fr}h1{font-size:40px}}
@@ -13,7 +13,7 @@
 <script src="https://rybbit.getcolors.ai/api/script.js" data-site-id="9fb9c41a6d49" defer></script>
 </head>
 <body><main>
-  <p class="eyebrow">GREEN · RED · BLUE PACKAGE SKILL · DIGITALOCEAN · RYBBIT</p>
+  <p class="eyebrow">GREEN · RED · BLUE PACKAGE SKILL · DIGITALOCEAN · VULTR · RYBBIT</p>
   <h1>Rybbit Package Skill</h1>
   <p class="lead">A reproducible Green, Red, and Blue workflow for one production-oriented Rybbit analytics platform: PostgreSQL 17 for metadata and authentication, ClickHouse for columnar events, Redis, and the Rybbit backend and client behind Caddy, with Cloudflare DNS and TLS.</p>
 
@@ -30,18 +30,19 @@ chmod +x green
 
   <h2>Architecture and sizing</h2>
   <div class="grid">
-    <div class="card"><h3>Compute</h3><p>OpenTofu discovers the configured region’s default VPC at plan time and creates one Ubuntu 24.04 Droplet plus a firewall. No VPC is created and no VPC UUID belongs in desired state.</p></div>
+    <div class="card"><h3>Compute</h3><p><code>provider-compute</code> selects one Ubuntu 24.04 machine: on DigitalOcean OpenTofu discovers the configured region’s default VPC at plan time and creates one Droplet plus a firewall; on Vultr it creates one instance and a per-CIDR firewall group. No VPC is created and no VPC UUID belongs in desired state. The machine keypair is generated and owned by the deployment at <code>~/.ssh/&lt;profile&gt;</code> unless <code>&lt;provider&gt;-ssh-keys</code> names an existing account key.</p></div>
     <div class="card"><h3>Runtime</h3><p>Six containers: <code>postgres:17-alpine</code>, <code>clickhouse-server:24.8-alpine</code>, <code>redis:8.6.4-alpine</code>, the Rybbit <code>backend</code> and <code>client</code>, and <code>caddy:2.11.4</code>. Every datastore stays on the private Compose network.</p></div>
     <div class="card"><h3>Public boundary</h3><p>Cloudflare publishes one A record. Caddy routes <code>/api/*</code> and the OAuth discovery paths to <code>backend:3001</code> and everything else to <code>client:3002</code>. Only 22, 80 and 443 are admitted.</p></div>
-    <div class="card"><h3>Sizing</h3><p><code>s-4vcpu-8gb</code>. ClickHouse and PostgreSQL share the host with two Node processes, so this is the practical floor rather than a generous allocation.</p></div>
+    <div class="card"><h3>Sizing</h3><p><code>s-4vcpu-8gb</code> on DigitalOcean, <code>vc2-2c-4gb</code> or larger on Vultr. ClickHouse and PostgreSQL share the host with two Node processes, so this is the practical floor rather than a generous allocation.</p></div>
   </div>
-  <p>Secrets for the datastores are generated on the host on first converge into <code>/opt/rybbit/stack.env</code> at mode <code>0600</code> and retained across runs, so a re-converge never rotates a password out from under a running database. This is a single-node design: process and host restarts recover, but a Droplet, disk, or regional failure causes downtime.</p>
+  <p>Secrets for the datastores are generated on the host on first converge into <code>/opt/rybbit/stack.env</code> at mode <code>0600</code> and retained across runs, so a re-converge never rotates a password out from under a running database. This is a single-node design: process and host restarts recover, but a machine, disk, or regional failure causes downtime.</p>
 
   <h2>Desired state and credentials</h2>
-  <p><code>colors.yml</code> is the only file you edit, and it holds non-secret values only: the profile, DigitalOcean region, size and SSH sources, the host, every image tag, the data directories, and the backup destination, schedule and retention. See the <a href="skills/package-rybbit-green/references/configuration.md">configuration reference</a> for every key.</p>
+  <p><code>colors.yml</code> is the only file you edit, and it holds non-secret values only: the profile, the compute provider and its region, size and firewall sources (<code>digitalocean-*</code> or <code>vultr-*</code>), the host, every image tag, the data directories, and the backup destination, schedule and retention. <code>&lt;provider&gt;-name</code> and <code>&lt;provider&gt;-ssh-keys</code> are optional. Switching providers is a rebuild — delete on the recorded provider, then create on the new one — never an in-place apply. See the <a href="skills/package-rybbit-green/references/configuration.md">configuration reference</a> for every key.</p>
   <table>
     <tr><th>Variable</th><th>Purpose</th></tr>
-    <tr><td><code>COLORS_PAR_DO_TOKEN</code></td><td>DigitalOcean compute and firewall</td></tr>
+    <tr><td><code>COLORS_PAR_DO_TOKEN</code></td><td>DigitalOcean compute and firewall (<code>provider-compute: digitalocean</code>)</td></tr>
+    <tr><td><code>COLORS_PAR_VULTR_API_KEY</code></td><td>Vultr compute and firewall group (<code>provider-compute: vultr</code>)</td></tr>
     <tr><td><code>COLORS_PAR_CLOUDFLARE_API_TOKEN</code></td><td>DNS record for the configured host</td></tr>
     <tr><td><code>COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID</code><br><code>COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY</code></td><td>R2 credentials for the backup bucket</td></tr>
   </table>
@@ -55,9 +56,9 @@ chmod +x green
 
   <h2>Acceptance and operations</h2>
   <pre><code>./green create
-ssh &lt;droplet&gt; 'cd /opt/rybbit &amp;&amp; docker compose ps'
-ssh &lt;droplet&gt; 'systemctl status rybbit-backup.timer'
-ssh &lt;droplet&gt; 'journalctl -u rybbit-backup.service --since=-24h'</code></pre>
+ssh &lt;machine&gt; 'cd /opt/rybbit &amp;&amp; docker compose ps'
+ssh &lt;machine&gt; 'systemctl status rybbit-backup.timer'
+ssh &lt;machine&gt; 'journalctl -u rybbit-backup.service --since=-24h'</code></pre>
   <p>Acceptance runs at the end of <code>create</code> and reports only what it checked:</p>
   <ul>
     <li><strong>HTTPS with certificate verification.</strong> <code>/api/health</code> must answer over a valid certificate.</li>

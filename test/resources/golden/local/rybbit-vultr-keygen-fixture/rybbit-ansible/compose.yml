@@ -1,0 +1,124 @@
+services:
+  caddy:
+    image: caddy:2.11.4
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # Caddy serves HTTP/3 over UDP and advertises it via alt-svc whether or
+      # not the port is reachable. Without this publication browsers attempt
+      # QUIC, get nothing, and fall back to TCP -- which works, so it surfaces
+      # as intermittent slowness rather than an error. The provider firewall
+      # opens the same hole.
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/lib/rybbit/caddy/data:/data
+      - /var/lib/rybbit/caddy/config:/config
+    depends_on:
+      - backend
+      - client
+    # Access logs are now on, so bound them: an ingestion endpoint writes a
+    # line per request and the default json-file driver never rotates.
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    networks:
+      - internal
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    volumes:
+      - /var/lib/rybbit/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    volumes:
+      - /var/lib/rybbit/clickhouse:/var/lib/clickhouse
+      - /var/lib/rybbit/clickhouse-users.d/allow-json.xml:/etc/clickhouse-server/users.d/allow-json.xml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  redis:
+    image: redis:8.6.4-alpine
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    volumes:
+      - /var/lib/rybbit/redis:/data
+    command: >
+      sh -c 'redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --appendfsync everysec --maxmemory-policy noeviction'
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - internal
+
+  backend:
+    image: ghcr.io/rybbit-io/rybbit-backend@sha256:f729f42575bf018ff97e9f36d49200665b99003a14868acbe56a9b32a9ed6ac7
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    environment:
+      - NODE_ENV=production
+      - CLICKHOUSE_HOST=http://clickhouse:8123
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CLUSTER_WORKERS=2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3001/api/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  client:
+    image: ghcr.io/rybbit-io/rybbit-client@sha256:f384c1f73a0c2fc0794526908a1fdb2ba410a5cdb3f105487af70f067c8f103a
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_BACKEND_URL=https://rybbit.example.com
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

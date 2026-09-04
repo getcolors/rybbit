@@ -3,80 +3,101 @@
 
 import { readPars, parName } from "red/cli";
 import * as dryRun from "red/dry-run";
-import { preflight } from "red/lifecycle";
+import { preflight, type PreflightContext } from "red/lifecycle";
 import * as progress from "red/progress";
 import * as tofu from "red/tofu";
-import { adviceAdd, workflow, type Opts, type WireDecl } from "red/workflow";
+import { adviceAdd, failed, workflow, type Opts, type WireDecl } from "red/workflow";
+import { compute } from "package-once-red";
+import * as ssh from "./ssh.ts";
 import * as tools from "./tools.ts";
 import * as validate from "./validate.ts";
 
 export const defaults: Opts = {
-  "provider-compute": "digitalocean", "provider-dns": "cloudflare",
+  "provider-compute": validate.defaultComputeProvider, "provider-dns": "cloudflare",
   "provider-backend": "local", "compute-prevent-destroy": true,
   workdir: ".colors",
 };
 
 // Compute params recorded in the infrastructure state; undefined when the
-// state holds none. An unreadable backend throws — the delete path treats that
-// as fatal rather than falling back to the documentation address.
-export async function stateOutput(opts: Opts): Promise<Record<string, unknown> | undefined> {
+// state holds none. An unreadable backend throws the SDK's `StepError`, which
+// `compute.readState` turns into `{ error }` — create and delete treat the two
+// differently. Kept local, and injectable into `startStep`, so tests never
+// shell out to tofu.
+export async function stateOutput(opts: Opts): Promise<compute.Params | undefined> {
   const outputs = await tofu.outputs(
     tools.toolDir(opts, tools.infrastructureTool),
     tools.backendCredentialEnv(opts),
   );
-  const params = (outputs as Record<string, unknown> | undefined)?.params;
-  return params && typeof params === "object" ? params as Record<string, unknown> : undefined;
+  const params = outputs.params;
+  return params && typeof params === "object" ? params as compute.Params : undefined;
 }
 
 // A real delete runs the ansible cleanup before the infrastructure step, so
-// the instance address must come out of the existing state here. An explicit
-// `ip` (COLORS_PAR_IP) skips the read; a readable state without compute params
-// leaves `ip` unset and the cleanup step skips itself; an unreadable backend
-// fails loudly — swallowing it is how a live teardown ended up converging
-// against 192.0.2.10.
-export async function adoptState(
-  opts: Opts,
-  stateOutputFn: typeof stateOutput = stateOutput,
-): Promise<Opts> {
-  if (opts.ip) return { ...opts, "red/exit": 0 };
-  try {
-    return { ...opts, ...(await stateOutputFn(opts) ?? {}), "red/exit": 0 };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      ...opts, "red/exit": 1,
-      "red/err": "could not read the infrastructure state for " +
-        `the delete cleanup: ${message}\n` +
-        "fix the backend credentials, or supply " +
-        `${parName("ip")} to address the instance directly`,
-    };
-  }
+// the instance address must come out of the existing state here. The adoption
+// itself is ONCE's (`compute.adoptState`): a readable state without compute
+// params leaves `ip` unset and the cleanup step skips itself; an unreadable
+// backend fails loudly — swallowing it is how a live teardown ended up
+// converging against 192.0.2.10. What this package adds is the address
+// override: an explicit `ip` (COLORS_PAR_IP) never skips the read or the
+// provider guard, it only replaces the cleanup address once the read has
+// succeeded, for a state whose recorded address is stale. ONCE deliberately
+// applies no such override, so no other package gains a way to point a
+// delete's cleanup at an arbitrary host.
+export function adoptState(opts: Opts, state: compute.StateRead): Opts {
+  const adopted = compute.adoptState(opts, "delete", state);
+  return !failed(adopted) && opts.ip ? { ...adopted, ip: opts.ip } : adopted;
 }
 
 export async function startStep(
   opts: Opts,
   env: Record<string, string | undefined> = process.env,
-  stateOutputFn: typeof stateOutput = stateOutput,
+  reader: compute.StateReader = stateOutput,
 ): Promise<Opts> {
+  // The state is read once, up front, on the same defaulted and overlaid opts
+  // the validators see — the overlay is what carries the backend credentials —
+  // and only for the two events that touch a provider. The validator and the
+  // after-validate share the one read; the reader is injectable so tests never
+  // shell out to tofu.
+  const overlaid = readPars({ ...defaults, ...opts }, env);
+  const context: PreflightContext = {
+    event: typeof overlaid["red/event"] === "string" ? overlaid["red/event"] as string : undefined,
+    real: !overlaid["red/dry-run"],
+  };
+  const state: compute.StateRead = compute.lifecycleEvent(context)
+    ? await compute.readState(overlaid, reader) : {};
   return preflight(opts, {
     defaults,
     overlay: readPars,
     validators: [
       (_opts, environment) => validate.envErrors(environment),
       (current) => validate.stateErrors(current),
-      (current, _environment, { event, real }) =>
-        real && (event === "create" || event === "delete")
-          ? validate.secretErrors(current)
-          : [],
+      // Standard §4 before the credentials: a recorded provider that differs
+      // from the selected one reports the actionable error, not a missing
+      // token for the provider that was just selected.
+      (current, _environment, ctx) => (compute.lifecycleEvent(ctx)
+        ? compute.providerValidator(validate.spec, current, state.params, () => validate.secretErrors(current))
+        : []),
       (current, _environment, { event, real }) =>
         real && event === "delete" && current["compute-prevent-destroy"]
           ? [`compute destruction is protected; set ${parName("compute-prevent-destroy")}=false to delete`]
           : [],
     ],
-    afterValidate: async (current, _environment, { event, real }) =>
-      real && event === "delete"
-        ? adoptState(current, stateOutputFn)
-        : { ...current, "red/exit": 0 },
+    // The machine key's create matrix and the provider preflight run before
+    // any template is rendered: an unowned key on disk or at the provider
+    // stops the run while stopping is still free. Delete fills the same
+    // template values — a destroy renders before it destroys — and adopts the
+    // recorded address, but checks no key, because its key cleanup runs after
+    // the compute destroy.
+    afterValidate: async (current, _environment, { event, real }) => {
+      if (real && event === "delete") return adoptState(current, state);
+      if (real && event === "create") {
+        let next = await ssh.ensureKey(current, async () => state.params);
+        if (failed(next)) return next;
+        next = await ssh.preflight(ssh.withMachineKey(next));
+        return failed(next) ? next : { ...next, "red/exit": 0 };
+      }
+      return { ...ssh.withMachineKey(current), "red/exit": 0 };
+    },
   }, env);
 }
 
@@ -86,7 +107,11 @@ export function wireFn(step: string, runOpts: Opts): WireDecl | undefined {
       "rybbit/start": [startStep, "rybbit/ansible"],
       "rybbit/ansible": [tools.ansibleStep, "rybbit/dns"],
       "rybbit/dns": [tools.dnsStep, "rybbit/infrastructure"],
-      "rybbit/infrastructure": [tools.infrastructureStep],
+      // The keypair goes strictly after the compute destroy: a key that
+      // predeceases its host locks the operator out of a machine that still
+      // exists (SSH Keypair Standard §3.3).
+      "rybbit/infrastructure": [tools.infrastructureStep, "rybbit/ssh-cleanup"],
+      "rybbit/ssh-cleanup": [ssh.cleanupStep],
     };
     return graph[step];
   }
@@ -109,6 +134,7 @@ export function backendAdvice(tool: string) {
 
 export const sideEffecting = [
   "rybbit/infrastructure", "rybbit/dns", "rybbit/ansible", "rybbit/acceptance",
+  "rybbit/ssh-cleanup",
 ];
 
 function create() {

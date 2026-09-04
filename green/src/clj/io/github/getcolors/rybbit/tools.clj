@@ -8,6 +8,8 @@
             [green.scaffold :as sc]
             [green.tofu :as tofu]
             [green.workflow :as wf]
+            [io.github.getcolors.once.compute :as compute]
+            [io.github.getcolors.rybbit.ssh :as ssh]
             [io.github.getcolors.rybbit.validate :as validate]))
 
 (def infrastructure-tool "rybbit-infrastructure")
@@ -19,34 +21,46 @@
 (defn template [path file] (keyword (str root "." path) file))
 (defn spec [source target data] {:template source :target target :data data :opts template-opts})
 (defn raw-spec [target content] (sc/content-spec target content))
-(defn cidrs [opts k]
-  (let [v (get opts k) xs (if (sequential? v) v (str/split (str v) #"[,\s]+"))]
-    (->> xs (map (comp str/trim str)) (remove str/blank?) vec)))
+(def cidrs
+  "The source lists as validate parses them, so the template and the
+  validator can never disagree about what an entry is. ONCE's."
+  validate/cidrs)
+
 (defn credential-env [opts & slots]
   (not-empty
    (into {} (keep (fn [[k env-var]]
                     (when-let [v (not-empty (str (get opts k)))] [env-var v])))
          (apply merge (map #(validate/tofu-env opts %) (conj (vec slots) :provider-backend))))))
 (defn backend-credential-env [opts] (credential-env opts))
-(defn fallback-params [opts]
-  {:ip "192.0.2.10" :user "root" :sudoer "root" :name (:profile opts)})
-(defn output-params [result]
-  (some-> (get-in result [:tofu/outputs :params]) walk/keywordize-keys))
 
-(defn compute-key
-  "Desired state names compute keys after the provider, so the shared steps have
-   to reach them through the selected provider rather than a fixed prefix."
-  [opts suffix]
-  (keyword (str (:provider-compute opts) "-" suffix)))
+(def fallback-params
+  "What `build` and `--dry-run` render in place of a compute output: the
+  documentation address, shaped like the selected provider's real `params` so
+  every later stage sees the same keys either way. ONCE's."
+  compute/fallback-params)
 
-(defn compute-name
-  "The machine's name. Every provider carries its own `<provider>-name`; the
-   profile is the fallback so build and dry-run render without one."
+(def resolved-compute
+  "Refuse to hand 192.0.2.10 to Ansible on a real converge whose compute
+  output carries no `ip`. ONCE's; `infrastructure-step` is what wires it."
+  compute/resolved-compute)
+
+(def compute-key
+  "`:<provider>-<suffix>`, the selected provider's key. ONCE's, via validate."
+  validate/compute-key)
+
+(def compute-name
+  "The machine's name: `<provider>-name` when present, else the profile. ONCE's,
+  via validate; the templates and the playbook derive every label from it."
+  validate/compute-name)
+
+(defn infrastructure-data
+  "Template values for the compute stage. The name, the keypair mode and the
+  source lists are resolved here once, so a template interpolates values and
+  never branches on which provider it belongs to."
   [opts]
-  (or (not-empty (str (get opts (compute-key opts "name")))) (str (:profile opts))))
-
-(defn infrastructure-data [opts]
   (assoc opts
+         :ssh-keygen (validate/keygen? opts)
+         :compute-name (compute-name opts)
          :ssh-sources-hcl (tofu/hcl-list (cidrs opts (compute-key opts "ssh-sources")))
          :http-sources-hcl (tofu/hcl-list (cidrs opts (compute-key opts "http-sources")))))
 
@@ -64,7 +78,9 @@
 (defn vultr-firewall-json
   "One rule per protocol, address family and port. UDP 443 carries HTTP/3, which
    Caddy advertises through alt-svc whether or not the port is reachable, so
-   omitting it degrades every visitor to TCP silently rather than erroring."
+   omitting it degrades every visitor to TCP silently rather than erroring. An
+   empty `vultr-http-sources` lists nothing to open, so no http, https or quic
+   rule is emitted: no public HTTP, and the same rule names otherwise."
   [opts]
   (let [group "${vultr_firewall_group.rybbit.id}"
         entries (concat
@@ -80,18 +96,6 @@
                        {:firewall_group_id group :protocol proto :ip_type ip-type
                         :subnet subnet :subnet_size subnet-size :port port
                         :notes (str tag " " ip-type)})))))
-(defn resolved-compute
-  "Refuse to hand 192.0.2.10 to Ansible. That is the documentation address the
-   credential-free build and dry-run paths render with; on a real converge a
-   missing compute output must fail loudly rather than quietly point the whole
-   playbook at TEST-NET."
-  [result fallback outputs]
-  (if (:ip outputs)
-    (merge result fallback outputs)
-    (assoc result :green/exit 1
-           :green/err (str "compute produced no ip output; refusing to converge "
-                           "against the documentation address"))))
-
 (defn infrastructure-specs
   "Providers are selected by template directory, not by conditionals inside one
    file. Vultr additionally needs its firewall rules generated, because their
@@ -113,7 +117,7 @@
       (wf/failed? result) result
       (= :build (:green/event opts)) (merge result (fallback-params opts))
       (= :delete (:green/event opts)) result
-      :else (resolved-compute result (fallback-params opts) (output-params result)))))
+      :else (resolved-compute result (fallback-params opts) (compute/output-params result)))))
 
 (defn zone-id [zone] (format "${data.cloudflare_zone.zone.id}" zone))
 (defn dns-data [opts]
@@ -157,9 +161,14 @@
                                       {:ansible_host (or (:ip opts) "192.0.2.10")
                                        :ansible_user "root"}}}}}}
    {:pretty true}))
-(defn ansible-data [opts]
+(defn ansible-data
+  "Template values for the Ansible stage. `ssh-private-key-path` reaches
+  ansible.cfg so convergence uses the deployment's own key in keygen mode,
+  where nothing guarantees an agent holds it."
+  [opts]
   (assoc opts
          :ip (or (:ip opts) "192.0.2.10")
+         :ssh-keygen (validate/keygen? opts)
          :compute-name (compute-name opts)
          :rybbit-backup-access-key "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}"
          :rybbit-backup-secret-key "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}"))
@@ -198,17 +207,23 @@
            (into ["curl" "-sS" "-o" "/dev/null" "-w" "%{http_code}"] args) {} 20000)]
     (when (zero? (:exit r)) (str/trim (:out r)))))
 
-(defn ssh-out [ip command timeout]
+(defn ssh-out
+  "Run `command` on the host over ssh. The deployment's own key is selected in
+  keygen mode (`ssh/identity-args`), because nothing guarantees an agent holds
+  it; opt-out mode adds nothing and relies on the operator's identities."
+  [opts ip command timeout]
   (let [r (process/run-with-timeout
-           ["ssh" "-o" "StrictHostKeyChecking=no" "-o" "ConnectTimeout=10"
-            (str "root@" ip) command] {} timeout)]
+           (-> ["ssh" "-o" "StrictHostKeyChecking=no" "-o" "ConnectTimeout=10"]
+               (into (ssh/identity-args opts))
+               (conj (str "root@" ip) command))
+           {} timeout)]
     (when (zero? (:exit r)) (str/trim (:out r)))))
 
 (def stack-env "cd /opt/rybbit && set -a && . ./stack.env && set +a && ")
 
-(defn psql [ip query]
+(defn psql [opts ip query]
   (not-empty
-   (str (ssh-out ip (str stack-env
+   (str (ssh-out opts ip (str stack-env
                          "docker compose exec -T postgres psql -U \"$POSTGRES_USER\""
                          " -d \"$POSTGRES_DB\" -tAc '" query "'")
                  30000))))
@@ -216,9 +231,9 @@
 (defn clickhouse
   "Resolve the events table from system.tables so the check does not hardcode a
    database name Rybbit's migrations own, then run `query` against it."
-  [ip query]
+  [opts ip query]
   (not-empty
-   (str (ssh-out ip (str stack-env
+   (str (ssh-out opts ip (str stack-env
                          "t=$(docker compose exec -T clickhouse clickhouse-client"
                          " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\""
                          " --query \"SELECT database || '.' || name FROM system.tables"
@@ -229,8 +244,8 @@
                          " --query \"" query "\"")
                  30000))))
 
-(defn event-count [ip]
-  (some-> (clickhouse ip "SELECT count() FROM $t") parse-long))
+(defn event-count [opts ip]
+  (some-> (clickhouse opts ip "SELECT count() FROM $t") parse-long))
 
 (defn acceptance-site-id
   "A dedicated throwaway site, created on demand. Sending the synthetic event to
@@ -244,7 +259,7 @@
     ;; remote shell, where an escaped quote would arrive at psql verbatim.
     ;; psql prints the INSERT tag before the SELECT result, so take the id off
     ;; the last line rather than the whole output.
-    (some->> (psql ip (str "insert into sites (name, domain, organization_id) "
+    (some->> (psql opts ip (str "insert into sites (name, domain, organization_id) "
                   "select $$colors-acceptance$$, $$" domain "$$, "
                   "(select id from organization limit 1) "
                   "where not exists (select 1 from sites where domain = $$" domain "$$); "
@@ -279,9 +294,9 @@
         (re-matches #"2\d\d" (str status)) :dropped
         :else :rejected))
 
-(defn wait-ingested [ip baseline attempts]
+(defn wait-ingested [opts ip baseline attempts]
   (loop [n attempts]
-    (let [after (event-count ip)]
+    (let [after (event-count opts ip)]
       (cond (and (integer? after) (> after baseline)) after
             (pos? n) (do (Thread/sleep 3000) (recur (dec n)))
             :else after))))
@@ -291,7 +306,7 @@
        "RCLONE_CONFIG_R2_REGION=auto RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true"))
 
 (defn backup-listing [opts ip]
-  (some-> (ssh-out ip (str "set -a; . /etc/rybbit-backup.env; set +a; " rclone-env
+  (some-> (ssh-out opts ip (str "set -a; . /etc/rybbit-backup.env; set +a; " rclone-env
                            " RCLONE_CONFIG_R2_ACCESS_KEY_ID=\"$RYBBIT_BACKUP_R2_ACCESS_KEY_ID\""
                            " RCLONE_CONFIG_R2_SECRET_ACCESS_KEY=\"$RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY\""
                            " RCLONE_CONFIG_R2_ENDPOINT=\"" (:rybbit-backup-r2-endpoint opts) "\""
@@ -311,8 +326,8 @@
                           (not (.isBefore t since)))))
                  entries)))
 
-(defn run-backup [ip]
-  (ssh-out ip "systemctl start rybbit-backup.service && systemctl is-active rybbit-backup.timer"
+(defn run-backup [opts ip]
+  (ssh-out opts ip "systemctl start rybbit-backup.service && systemctl is-active rybbit-backup.timer"
            300000))
 
 (defn acceptance-step [opts]
@@ -325,21 +340,21 @@
         (assoc opts :green/exit 1
                :green/err "HTTPS health did not become ready with a valid certificate")
         (let [site (acceptance-site-id opts ip)
-              before (event-count ip)]
+              before (event-count opts ip)]
           (if-not (integer? before)
             (assoc opts :green/exit 1
                    :green/err "could not read the ClickHouse events table to verify ingestion")
             (let [verdict (if-not site
                             :not-configured
                             (let [status (send-event base site)
-                                  after (wait-ingested ip before 10)]
+                                  after (wait-ingested opts ip before 10)]
                               (ingestion-verdict status before after)))]
               (cond
                 (contains? #{:dropped :rejected :unreachable} verdict)
                 (assoc opts :green/exit 1
                        :green/err (str "synthetic event was not ingested: " (name verdict)))
 
-                (nil? (run-backup ip))
+                (nil? (run-backup opts ip))
                 (assoc opts :green/exit 1 :green/err "backup unit or timer is not healthy")
 
                 (not (fresh-backup? (backup-listing opts ip) since))

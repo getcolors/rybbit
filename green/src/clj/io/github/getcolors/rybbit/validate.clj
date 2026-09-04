@@ -1,6 +1,8 @@
 (ns io.github.getcolors.rybbit.validate
   (:require [clojure.string :as str]
             [green.cli :as green-cli]
+            [io.github.getcolors.once.compute :as compute]
+            [io.github.getcolors.once.ssh :as once-ssh]
             [io.github.getcolors.once.validate :as once-validate]))
 
 (def profile-par (green-cli/par-name :profile))
@@ -13,24 +15,55 @@
   subset OpenTofu reads from the process environment itself. Keeping the three
   together is what stops a provider being validated against one set of keys and
   run with another -- a stage exporting a credential nobody checked for, or a
-  check demanding a key no template uses.
+  check demanding a key no template uses. The keys of this map are the
+  advertised providers; a provider without a template directory and a golden
+  is not advertised.
 
   Both providers need firewall sources because this package puts a provider
   firewall in front of the host; ONCE's compute templates have none, so its
-  registry entries are shorter."
+  registry entries are shorter.
+
+  Two keys the templates read are deliberately not required. `<provider>-name`
+  is an optional override of the profile (Compute Name Standard), and
+  `<provider>-ssh-keys` is meaningful by its absence (SSH Keypair Standard).
+  Keys of the unselected provider are accepted and ignored, so one colors.yml
+  stays portable between providers."
   {"digitalocean"
-   {:required [:digitalocean-name :digitalocean-region :digitalocean-size
-               :digitalocean-image :digitalocean-ssh-keys
+   {:required [:digitalocean-region :digitalocean-size :digitalocean-image
                :digitalocean-ssh-sources :digitalocean-http-sources]
     :secrets [:do-token]
     :tofu-env {:do-token "DIGITALOCEAN_TOKEN"}}
    "vultr"
-   {:required [:vultr-name :vultr-region :vultr-plan :vultr-os-id
-               :vultr-ssh-keys :vultr-ssh-sources :vultr-http-sources]
+   {:required [:vultr-region :vultr-plan :vultr-os-id
+               :vultr-ssh-sources :vultr-http-sources]
     :secrets [:vultr-api-key]
     :tofu-env {:vultr-api-key "VULTR_API_KEY"}}})
 
+(def default-compute-provider
+  "The provider a deployment created before this package recorded one in its
+  compute output must be running. A legacy state -- `params` without
+  `provider` -- is whatever this value says it is, and the only legacy state
+  this package has is the live Vultr deployment (`rybbit-vultr`, which serves
+  rybbit.getcolors.ai). A DigitalOcean default would make the Compute
+  Provider Standard's legacy rule refuse every real create and delete on it
+  until it was rebuilt, so the default is Vultr even though DigitalOcean was
+  the package's first provider. Every fixture and deployment selects its
+  provider explicitly, so nothing renders differently for it."
+  "vultr")
+
+(def spec
+  "How this package describes itself to ONCE's `compute`, the Compute Provider
+  Standard's operations over a package-owned registry. The registry and the
+  default are the data above; `:sources` names the firewall lists the
+  templates read -- SSH must list at least one CIDR, an empty HTTP list means
+  no public HTTP. The name rules are ONCE's."
+  {:registry compute-providers
+   :default default-compute-provider
+   :sources {:non-empty ["ssh-sources"] :may-be-empty ["http-sources"]}})
+
 (def required
+  "Every key desired state must carry whichever provider is selected. The
+  provider-scoped keys come from `compute-providers`."
   [:profile :workdir :provider-compute :provider-dns :provider-backend
    :compute-prevent-destroy :rybbit-host :rybbit-disable-signup
    :postgres-image :clickhouse-image :redis-image
@@ -50,17 +83,41 @@
   (when (not-empty (str (get env profile-par)))
     [(str profile-par " is set; profile must come from colors.yml only")]))
 
-(defn compute-provider [opts] (get compute-providers (:provider-compute opts)))
+(def compute-key
+  "`:<provider>-<suffix>`: desired state names compute keys after the
+  provider, so the shared steps reach them through the selected provider
+  rather than a fixed prefix. ONCE's; named here so `tools` reads the same."
+  compute/key)
 
-(defn state-errors [opts]
+(def compute-name
+  "What this deployment's machine is called: `<provider>-name` when present,
+  else the profile (Compute Name Standard). ONCE's; the templates, the
+  firewall and the playbook derive every label from this one answer."
+  compute/name)
+
+(defn keygen?
+  "Whether this deployment owns its machine keypair. Delegates to ONCE, the
+  standard's reference implementation, so one rule decides it everywhere."
+  [opts]
+  (once-ssh/keygen? opts))
+
+(def cidrs
+  "A source list as desired state or an overlay string carries it. ONCE's, so
+  the validator and the templates can never disagree about what an entry is."
+  compute/cidrs)
+
+(defn state-errors
+  "Every problem with desired state at once: the missing keys (this package's
+  and the selected provider's), the package's own checks, then the Compute
+  Provider Standard's -- selection, the network contract and the provider
+  rules, DigitalOcean's VPC refusal among them -- which are ONCE's over
+  `spec`."
+  [opts]
   (vec
    (concat
-    (for [k (concat required (:required (compute-provider opts)))
+    (for [k (concat required (compute/required-keys spec opts))
           :when (missing? (get opts k))]
       (str k " is required"))
-    (when-not (compute-provider opts)
-      [(str ":provider-compute must be one of "
-            (str/join ", " (sort (keys compute-providers))))])
     (when-not (= "cloudflare" (:provider-dns opts))
       [":provider-dns must be cloudflare"])
     (when-not (contains? #{"local" "s3" "r2"} (:provider-backend opts))
@@ -79,16 +136,16 @@
           :when (and (not (missing? (get opts k)))
                      (not (and (integer? (get opts k)) (pos? (get opts k)))))]
       (str k " must be a positive integer"))
-    (when (contains? opts :digitalocean-vpc-uuid)
-      [":digitalocean-vpc-uuid must be absent; the default regional VPC is discovered at runtime"])
-    (when (contains? opts :digitalocean-vpc-cidr)
-      [":digitalocean-vpc-cidr must be absent; this package must not create a VPC"]))))
+    (compute/state-errors spec opts))))
 
 (defn backend-secrets [opts]
   (:secrets (get-in once-validate/providers
                     [:provider-backend (:provider-backend opts)])))
-(defn secret-errors [opts]
-  (let [keys (concat (:secrets (compute-provider opts))
+(defn secret-errors
+  "Credentials a real create or delete needs: the selected compute provider's,
+  Cloudflare's, the backup bucket's, and the backend's."
+  [opts]
+  (let [keys (concat (compute/secrets spec opts)
                      [:cloudflare-api-token
                       :rybbit-backup-r2-access-key-id
                       :rybbit-backup-r2-secret-access-key]
@@ -98,7 +155,7 @@
 
 (defn tofu-env [opts slot]
   (case slot
-    :provider-compute (:tofu-env (compute-provider opts) {})
+    :provider-compute (compute/tofu-env spec opts)
     :provider-dns {:cloudflare-api-token "CLOUDFLARE_API_TOKEN"}
     :provider-backend (:tofu-env (get-in once-validate/providers
                                          [:provider-backend (:provider-backend opts)]) {})

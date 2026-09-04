@@ -14,7 +14,13 @@ both compute providers.
 
 - **Compute**: A dedicated DigitalOcean Droplet (with dynamic account-default
   VPC discovery) or Vultr instance (with a generated per-CIDR firewall group),
-  selected by `provider-compute`.
+  selected by `provider-compute`. The provider operations — selection, the
+  CIDR checks, the rebuild-only switch rule — are ONCE's `compute` namespace
+  over this package's two-entry registry (the workspace Compute Provider
+  Standard).
+- **Access**: The machine keypair is generated and owned by the deployment at
+  `~/.ssh/<profile>` (the SSH Keypair Standard); set `<provider>-ssh-keys` to
+  an existing account key to opt out.
 - **Ingress**: Caddy terminating origin TLS on ports 80/443 (plus UDP 443 for
   HTTP/3), reverse-proxying `/api/*` to Rybbit backend (Fastify) and the rest
   to Rybbit client (Next.js).
@@ -54,7 +60,7 @@ and run the same way with `./red` and `./blue`.
 cd green && bb test && bb golden          # canonical implementation and goldens
 cd red && bun test && bun run typecheck   # TypeScript implementation
 cd blue && uv run pytest                  # Python implementation
-./scripts/parity.sh                       # three colours, two providers, byte for byte
+./scripts/parity.sh                       # three colours, two providers, two keypair modes, byte for byte
 ./scripts/launcher.sh
 ```
 

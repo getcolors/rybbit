@@ -47,5 +47,5 @@ resource "vultr_instance" "rybbit" {
 output "params" {
   # main_ip, not ipv4_address. Naming the DigitalOcean attribute here fails as
   # an unreachable host rather than as a missing output.
-  value = { ip = vultr_instance.rybbit.main_ip, user = "root", sudoer = "root", name = "rybbit-vultr-fixture" }
+  value = { provider = "vultr", ip = vultr_instance.rybbit.main_ip, user = "root", sudoer = "root", name = "rybbit-vultr-fixture" }
 }

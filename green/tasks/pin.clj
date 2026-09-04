@@ -24,9 +24,9 @@
        "# [tool.uv.sources]\n"
        "# package-rybbit-blue = { git = \"https://github.com/getcolors/rybbit.git\", rev = \"" sha "\", subdirectory = \"blue\" }\n"
        "# blue = { git = \"https://github.com/getcolors/blue.git\", rev = \"290f313ead5ca162875c33a049c880da017eae09\" }\n"
-       "# package-once-blue = { git = \"https://github.com/getcolors/once.git\", subdirectory = \"blue\", rev = \"98d3cfa2c743b89a72bac0252c258f9edeedcad7\" }\n"
+       "# package-once-blue = { git = \"https://github.com/getcolors/once.git\", subdirectory = \"blue\", rev = \"04f9623159358882f6407618f804f70ce7067e54\" }\n"
        "#\n"
-       ;; package-once-blue at 98d3cfa carries its own, older blue pin
+       ;; package-once-blue at 04f9623 carries its own, older blue pin
        ;; (369c5aafea790a03b649b3513003651e672f3f57); the override makes this
        ;; package's blue pin win, as it does in blue/pyproject.toml.
        "# [tool.uv]\n"

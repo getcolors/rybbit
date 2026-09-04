@@ -1,10 +1,18 @@
 (ns io.github.getcolors.rybbit.tools-test
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [green.ansible :as ansible]
+            [green.scaffold :as sc]
             [io.github.getcolors.rybbit.tools :as tools]
             [io.github.getcolors.rybbit.validate :as validate]
-            [io.github.getcolors.rybbit.validate-test :refer [fixture vultr-fixture]]))
+            [io.github.getcolors.rybbit.validate-test :refer [fixture vultr-fixture keygen keygen-vultr]]))
+
+(defn- render-infrastructure
+  "The compute template for `opts`' provider, rendered as `build` would."
+  [opts]
+  (sc/render-template (tools/template (str "infrastructure." (:provider-compute opts)) "main.tf")
+                      (tools/infrastructure-data opts)
+                      tools/template-opts))
 
 (deftest infrastructure-discovers-default-vpc
   (let [data (tools/infrastructure-data (fixture))]
@@ -27,6 +35,50 @@
   (is (= "rybbit-fixture" (tools/compute-name (fixture :digitalocean-name nil))))
   (is (str/includes? (slurp "src/resources/io/github/getcolors/rybbit/tools/ansible/main.yml")
                      "<{ compute-name }>")))
+
+(deftest infrastructure-data-carries-the-name-and-the-keypair-mode
+  ;; One resolved name and one mode reach every template, so no template
+  ;; branches on the provider or re-derives either.
+  (let [data (tools/infrastructure-data (vultr-fixture))]
+    (is (= "rybbit-vultr-fixture" (:compute-name data)))
+    (is (false? (:ssh-keygen data))))
+  (let [data (tools/infrastructure-data (keygen-vultr))]
+    (is (= "rybbit-vultr-keygen-fixture" (:compute-name data)))
+    (is (true? (:ssh-keygen data))))
+  (is (true? (:ssh-keygen (tools/ansible-data (keygen)))))
+  (is (false? (:ssh-keygen (tools/ansible-data (fixture))))))
+
+(deftest templates-name-the-machine-from-one-resolved-value
+  ;; Every label -- droplet name, instance label, firewall group and names,
+  ;; and params.name -- interpolates compute-name, never a provider key or the
+  ;; profile directly, so an override and the fallback land everywhere at once.
+  (doseq [provider ["vultr" "digitalocean"]]
+    (let [template (slurp (str "src/resources/io/github/getcolors/rybbit/tools/infrastructure/" provider "/main.tf"))]
+      (is (not (str/includes? template (str "<{ " provider "-name }>"))) provider)
+      (is (str/includes? template "name = \"<{ compute-name }>\"") provider)
+      (is (str/includes? template (str "provider = \"" provider "\"")) provider)))
+  (let [rendered (render-infrastructure (vultr-fixture :vultr-name "custom-label"))]
+    (is (str/includes? rendered "label = \"custom-label\""))
+    (is (str/includes? rendered "description = \"custom-label\""))
+    (is (str/includes? rendered "name = \"custom-label\""))))
+
+(deftest empty-http-sources-renders-no-public-http
+  ;; An empty `<provider>-http-sources` is allowed and means no public HTTP:
+  ;; Vultr's generated rules simply omit http, https and quic, and the
+  ;; DigitalOcean rules are a dynamic block over an empty list. SSH stays.
+  (testing "Vultr"
+    (let [json (tools/vultr-firewall-json (tools/infrastructure-data (vultr-fixture :vultr-http-sources [])))]
+      (is (= 2 (count (re-seq #"\"firewall_group_id\"" json))))
+      (is (= #{"\"22\""} (set (map second (re-seq #"\"port\" : (\"\d+\")" json)))))
+      (is (not (str/includes? json "udp")))))
+  (testing "DigitalOcean"
+    (let [rendered (render-infrastructure (fixture :digitalocean-http-sources []))]
+      (is (str/includes? rendered "length([]) > 0 ? ["))
+      (is (str/includes? rendered "source_addresses = []"))
+      (is (str/includes? rendered "port_range       = \"22\"")))
+    (let [rendered (render-infrastructure (fixture))]
+      (is (str/includes? rendered "length([\"0.0.0.0/0\", \"::/0\"]) > 0 ? ["))
+      (is (str/includes? rendered "{ protocol = \"udp\", port_range = \"443\" }")))))
 
 (deftest vultr-cidrs-split-into-address-and-prefix
   ;; Vultr takes subnet and subnet_size as separate fields, per address family.
