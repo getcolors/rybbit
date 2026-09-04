@@ -36,7 +36,7 @@ import { homedir } from "node:os";
 // directory, which would halt Bun's upward resolution of `package-rybbit-red`
 // and break the development symlink at red/red.
 const PINS = {
-  "package-rybbit-red": "github:getcolors/rybbit#c29b3334d2bec756cd935f6c6e9cd1b7e09c5006",
+  "package-rybbit-red": "github:getcolors/rybbit#ad30cdcbe8757adcc5b6349f7d307ee35f98df3f",
   "package-once-red": "github:getcolors/once#04f9623159358882f6407618f804f70ce7067e54",
   "red": "github:getcolors/red#db9bfe61282e2093f4098bf5a6ee0cd10added6e",
 };
