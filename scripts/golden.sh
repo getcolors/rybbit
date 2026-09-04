@@ -62,10 +62,12 @@ for variant in colors colors-vultr keygen keygen-vultr; do
     echo "golden: $profile rendered a real home directory; build must use the placeholder" >&2; exit 1
   fi
   # The converge play takes its address from the inventory at run time, so
-  # the rendered play itself must carry no dotted quad — a literal address in
-  # it would be a workstation- or deployment-specific byte in a golden.
-  if grep -Eq '([0-9]{1,3}\.){3}[0-9]{1,3}' "$actual/rybbit-ansible/main.yml"; then
-    echo "golden: $profile rendered an address into the converge play" >&2; exit 1
+  # the rendered play itself must carry no machine address — a literal one
+  # would be a workstation- or deployment-specific byte in a golden. Loopback
+  # (the on-host health check) and the unspecified address are not machine
+  # addresses and are allowed.
+  if grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' "$actual/rybbit-ansible/main.yml" | grep -Evq '^(127\.0\.0\.1|0\.0\.0\.0)$'; then
+    echo "golden: $profile rendered a machine address into the converge play" >&2; exit 1
   fi
   # SSH Keypair Standard §4.3: in keygen mode the template declares the
   # profile-named account key and references it by attribute, never by a
