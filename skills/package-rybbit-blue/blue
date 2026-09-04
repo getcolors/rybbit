@@ -4,7 +4,7 @@
 # dependencies = ["package-rybbit-blue", "blue", "package-once-blue"]
 #
 # [tool.uv.sources]
-# package-rybbit-blue = { git = "https://github.com/getcolors/rybbit.git", rev = "126d65226d5e9d13124cffb0a60d1fbd1c14e352", subdirectory = "blue" }
+# package-rybbit-blue = { git = "https://github.com/getcolors/rybbit.git", rev = "c29b3334d2bec756cd935f6c6e9cd1b7e09c5006", subdirectory = "blue" }
 # blue = { git = "https://github.com/getcolors/blue.git", rev = "290f313ead5ca162875c33a049c880da017eae09" }
 # package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "04f9623159358882f6407618f804f70ce7067e54" }
 #
