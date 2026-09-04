@@ -123,10 +123,10 @@
 (deftest a-real-create-on-a-fresh-work-directory-reports-the-credentials-not-a-crash
   ;; No state stub: the real `state-output` runs against a work directory
   ;; that holds no stage yet, as a fresh clone's does. Green's SDK shells out
-  ;; to tofu in a directory that does not exist, which surfaces as a
-  ;; java.io.IOException from clojure.java.shell rather than the SDK's step
-  ;; error; ONCE's `read-state` counts that as an unreadable state, so the
-  ;; create reports its credentials instead of crashing.
+  ;; to tofu in a directory that does not exist and reports that launch
+  ;; failure itself as its `tofu output failed:` step error, which ONCE's
+  ;; `read-state` counts as an unreadable state, so the create reports its
+  ;; credentials instead of crashing.
   (let [work (str (fs/create-temp-dir {:prefix "rybbit-fresh"}))]
     (try
       (let [r (workflow/start-step (assoc (vultr-fixture) :workdir work :green/event :create) {})]

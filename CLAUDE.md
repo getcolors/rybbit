@@ -124,8 +124,13 @@ through every colour and diffs the trees — and the colour template trees
 The package pins Green and ONCE in `green/deps.edn`, the Red SDK and
 `package-once-red` in `red/package.json`, and the Blue SDK and
 `package-once-blue` in `blue/pyproject.toml`. All three colours pin ONCE at the
-**same rev** (`04f9623`) — ONCE's own parity is what guarantees its colours
-agree per commit. ONCE supplies the backend provider registry, the `compute`
+**same rev** (`38e3cd6`) — ONCE's own parity is what guarantees its colours
+agree per commit. The green pin (`3f33f5d`) is a floor coupled to that ONCE
+rev: ONCE 38e3cd6 trusts the SDK's step error alone when it reads state, and
+green 3f33f5d is where the SDK reports a tofu launch failure (a missing stage
+directory or binary) as that step error, the way red and blue always did; an
+older green under this ONCE would crash a fresh-clone create instead of
+reporting its credentials, so the two pins move together. ONCE supplies the backend provider registry, the `compute`
 namespace (the Compute Provider Standard's operations over this package's own
 registry) and the `ssh` namespace (the SSH Keypair Standard); the red launcher's
 `PINS`, the blue launcher's PEP 723 block and `green/tasks/pin.clj` carry the
@@ -133,8 +138,9 @@ same rev. A pin bump is read through `scripts/golden.sh`: the opt-out goldens
 render the historical shape byte for byte whatever ONCE's keypair default is,
 because presence of `<provider>-ssh-keys` in those fixtures is what selects
 opt-out. `blue/pyproject.toml` carries a `[tool.uv] override-dependencies`
-block because `package-once-blue` pins an older Blue rev (`369c5aa`); the
-override makes this package's Blue pin win. Between a commit that moves the
+block, now redundant because `package-once-blue` at `38e3cd6` pins the same
+Blue rev, and kept because it is harmless and would make this package's Blue
+pin win were ONCE ever to pin an older one again. Between a commit that moves the
 ONCE pin and the `bb pin` that re-stamps the launchers, the blue launcher's
 inline metadata pins `package-rybbit-blue` at the previous commit — whose
 `pyproject.toml` pins the previous ONCE — and `uv run --script` refuses the
