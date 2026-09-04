@@ -180,10 +180,27 @@
 (deftest graph-orders-private-stack
   (is (= [:rybbit/infrastructure]
          (vec (rest (workflow/wire-fn :rybbit/start {:green/event :create})))))
-  (is (= [:rybbit/dns]
+  (is (= [:rybbit/ssh-config]
          (vec (rest (workflow/wire-fn :rybbit/infrastructure {:green/event :create})))))
+  (is (= [:rybbit/dns]
+         (vec (rest (workflow/wire-fn :rybbit/ssh-config {:green/event :create})))))
+  (is (= [:rybbit/ansible]
+         (vec (rest (workflow/wire-fn :rybbit/dns {:green/event :create})))))
+  (is (= [:rybbit/acceptance]
+         (vec (rest (workflow/wire-fn :rybbit/ansible {:green/event :create})))))
   (is (= [:rybbit/ansible]
          (vec (rest (workflow/wire-fn :rybbit/start {:green/event :delete}))))))
+
+(deftest delete-removes-the-config-block-before-the-destroy
+  ;; The opposite of the keypair below: a block that outlives its host is
+  ;; stale but harmless, so removing it early costs nothing.
+  (is (= [:rybbit/dns]
+         (vec (rest (workflow/wire-fn :rybbit/ansible {:green/event :delete})))))
+  (is (= [:rybbit/ssh-config]
+         (vec (rest (workflow/wire-fn :rybbit/dns {:green/event :delete})))))
+  (is (= [:rybbit/infrastructure]
+         (vec (rest (workflow/wire-fn :rybbit/ssh-config {:green/event :delete})))))
+  (is (some #{:rybbit/ssh-config} workflow/side-effecting) "a dry-run never writes ~/.ssh/config"))
 
 (deftest delete-removes-the-key-after-the-compute-destroy
   ;; The ordering is what makes "key present <=> deployment exists" hold: a

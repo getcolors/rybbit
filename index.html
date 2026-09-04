@@ -30,7 +30,7 @@ chmod +x green
 
   <h2>Architecture and sizing</h2>
   <div class="grid">
-    <div class="card"><h3>Compute</h3><p><code>provider-compute</code> selects one Ubuntu 24.04 machine: on DigitalOcean OpenTofu discovers the configured region’s default VPC at plan time and creates one Droplet plus a firewall; on Vultr it creates one instance and a per-CIDR firewall group. No VPC is created and no VPC UUID belongs in desired state. The machine keypair is generated and owned by the deployment at <code>~/.ssh/&lt;profile&gt;</code> unless <code>&lt;provider&gt;-ssh-keys</code> names an existing account key.</p></div>
+    <div class="card"><h3>Compute</h3><p><code>provider-compute</code> selects one Ubuntu 24.04 machine: on DigitalOcean OpenTofu discovers the configured region’s default VPC at plan time and creates one Droplet plus a firewall; on Vultr it creates one instance and a per-CIDR firewall group. No VPC is created and no VPC UUID belongs in desired state. The machine keypair is generated and owned by the deployment at <code>~/.ssh/&lt;profile&gt;</code> unless <code>&lt;provider&gt;-ssh-keys</code> names an existing account key. A real create also writes one managed <code>~/.ssh/config</code> block, following the workspace SSH Config Standard, so <code>ssh &lt;profile&gt;</code> reaches the host with no address, user or <code>-i</code> flag; a hand-written <code>Host &lt;profile&gt;</code> stanza outside its markers makes the create refuse rather than overwrite it.</p></div>
     <div class="card"><h3>Runtime</h3><p>Six containers: <code>postgres:17-alpine</code>, <code>clickhouse-server:24.8-alpine</code>, <code>redis:8.6.4-alpine</code>, the Rybbit <code>backend</code> and <code>client</code>, and <code>caddy:2.11.4</code>. Every datastore stays on the private Compose network.</p></div>
     <div class="card"><h3>Public boundary</h3><p>Cloudflare publishes one A record. Caddy routes <code>/api/*</code> and the OAuth discovery paths to <code>backend:3001</code> and everything else to <code>client:3002</code>. Only 22, 80 and 443 are admitted.</p></div>
     <div class="card"><h3>Sizing</h3><p><code>s-4vcpu-8gb</code> on DigitalOcean, <code>vc2-2c-4gb</code> or larger on Vultr. ClickHouse and PostgreSQL share the host with two Node processes, so this is the practical floor rather than a generous allocation.</p></div>
@@ -56,9 +56,9 @@ chmod +x green
 
   <h2>Acceptance and operations</h2>
   <pre><code>./green create
-ssh &lt;machine&gt; 'cd /opt/rybbit &amp;&amp; docker compose ps'
-ssh &lt;machine&gt; 'systemctl status rybbit-backup.timer'
-ssh &lt;machine&gt; 'journalctl -u rybbit-backup.service --since=-24h'</code></pre>
+ssh &lt;profile&gt; 'cd /opt/rybbit &amp;&amp; docker compose ps'
+ssh &lt;profile&gt; 'systemctl status rybbit-backup.timer'
+ssh &lt;profile&gt; 'journalctl -u rybbit-backup.service --since=-24h'</code></pre>
   <p>Acceptance runs at the end of <code>create</code> and reports only what it checked:</p>
   <ul>
     <li><strong>HTTPS with certificate verification.</strong> <code>/api/health</code> must answer over a valid certificate.</li>

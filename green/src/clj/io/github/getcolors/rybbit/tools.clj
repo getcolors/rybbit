@@ -10,11 +10,13 @@
             [green.workflow :as wf]
             [io.github.getcolors.once.compute :as compute]
             [io.github.getcolors.rybbit.ssh :as ssh]
+            [io.github.getcolors.rybbit.ssh-config :as ssh-config]
             [io.github.getcolors.rybbit.validate :as validate]))
 
 (def infrastructure-tool "rybbit-infrastructure")
 (def dns-tool "rybbit-dns")
 (def ansible-tool "rybbit-ansible")
+(def ansible-local-tool "rybbit-ansible-local")
 (def root "io.github.getcolors.rybbit.tools")
 (def template-opts sc/preserve-jinja-delimiters)
 (defn tool-dir [opts tool] (green-cli/stage-dir opts tool {:default-profile "rybbit"}))
@@ -154,6 +156,41 @@
         specs [(spec (template "dns" "main.tf") (str dir "/main.tf") data)
                (raw-spec (str dir "/record.tf.json") (dns-json data))]]
     (tofu/tofu-with-spec opts specs {:dir dir :env (credential-env opts :provider-dns)})))
+
+;; ---------------------------------------------------------- ansible (local)
+
+(defn ansible-local-data
+  "Only what a `build` genuinely knows. The address, the user and the alias are
+  run-time facts and reach the play as extra-vars instead, so the rendered
+  playbook carries no IP and is identical on every workstation (SSH Config
+  Standard §6)."
+  [opts]
+  (assoc opts
+         :ssh-keygen (validate/keygen? opts)
+         :ssh-config-identity-file (ssh-config/identity-file opts)))
+
+(defn ansible-local-specs [opts]
+  (let [dir (tool-dir opts ansible-local-tool) data (ansible-local-data opts)]
+    [(spec (template "ansible-local" "ansible.cfg") (str dir "/ansible.cfg") data)
+     (spec (template "ansible-local" "inventory.ini") (str dir "/inventory.ini") data)
+     (spec (template "ansible-local" "main.yml") (str dir "/main.yml") data)]))
+
+(defn ansible-local-step
+  "Write or remove the `~/.ssh/config` block. The same playbook serves both
+  events; `block_state` is what distinguishes them."
+  [opts]
+  (let [dir (tool-dir opts ansible-local-tool)
+        delete? (= :delete (:green/event opts))]
+    (ansible/ansible-with-spec opts
+      {:dir dir :inventory "inventory.ini"
+       :playbooks {:create "main.yml" :delete "main.yml"}
+       :extra-vars {:host_alias (ssh-config/host-alias opts)
+                    :ip (or (:ip opts) (:ip (fallback-params opts)))
+                    :user (or (:user opts) "root")
+                    :block_state (if delete? "absent" "present")}}
+      (ansible-local-specs opts))))
+
+;; ---------------------------------------------------------------- ansible
 
 (defn inventory [opts]
   (json/generate-string

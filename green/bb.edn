@@ -4,11 +4,13 @@
  {test {:requires ([clojure.test :as t]
                    [io.github.getcolors.rybbit.validate-test]
                    [io.github.getcolors.rybbit.ssh-test]
+                   [io.github.getcolors.rybbit.ssh-config-test]
                    [io.github.getcolors.rybbit.tools-test]
                    [io.github.getcolors.rybbit.workflow-test])
         :task (let [{:keys [fail error]}
                     (t/run-tests 'io.github.getcolors.rybbit.validate-test
                                  'io.github.getcolors.rybbit.ssh-test
+                                 'io.github.getcolors.rybbit.ssh-config-test
                                  'io.github.getcolors.rybbit.tools-test
                                  'io.github.getcolors.rybbit.workflow-test)]
                 (System/exit (if (pos? (+ fail error)) 1 0)))}

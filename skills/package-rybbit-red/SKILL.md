@@ -27,6 +27,15 @@ own credential:
   and owns the machine keypair at `~/.ssh/<profile>` on the first real create
   (keygen mode, the default); set it to an existing account key id to use that
   key instead.
+- A real create also writes a managed `Host <profile>` block into
+  `~/.ssh/config`, between `# BEGIN <profile> ANSIBLE MANAGED BLOCK` and
+  `# END …` markers, so `ssh <profile>` reaches the machine; `delete` removes
+  it before the machine is destroyed. The alias is the profile — there is no
+  separate key for it. A `Host <profile>` stanza that already exists outside
+  those markers, or an option standing above the first `Host` line of the
+  file, refuses the create with the file and line named; the package never
+  overwrites either. Remove or rename the stanza, move the global options
+  below the block or into a `Host *` stanza at the end, or change `profile`.
 - `<provider>-ssh-sources` must list at least one CIDR; every entry of both
   source keys must be a valid IPv4 or IPv6 CIDR. An empty
   `<provider>-http-sources` means no public HTTP.

@@ -8,6 +8,7 @@
             [green.workflow :as wf]
             [io.github.getcolors.once.compute :as compute]
             [io.github.getcolors.rybbit.ssh :as ssh]
+            [io.github.getcolors.rybbit.ssh-config :as ssh-config]
             [io.github.getcolors.rybbit.tools :as tools]
             [io.github.getcolors.rybbit.validate :as validate]))
 
@@ -87,7 +88,8 @@
                 (let [opts (ssh/ensure-key! opts (fn [_] (:params state)))]
                   (if (wf/failed? opts)
                     opts
-                    (let [opts (ssh/preflight! (ssh/with-machine-key opts))]
+                    (let [opts (ssh/preflight! (ssh/with-machine-key opts))
+                          opts (if (wf/failed? opts) opts (ssh-config/preflight! opts))]
                       (if (wf/failed? opts) opts (assoc opts :green/exit 0)))))
 
                 :else
@@ -98,7 +100,12 @@
     (case step
       :rybbit/start [start-step :rybbit/ansible]
       :rybbit/ansible [tools/ansible-step :rybbit/dns]
-      :rybbit/dns [tools/dns-step :rybbit/infrastructure]
+      ;; The `~/.ssh/config` block goes before the destroy, the opposite of the
+      ;; keypair below. A block that outlives its host is stale but harmless; a
+      ;; key that predeceases its host locks the operator out of a machine that
+      ;; still exists. Both orders are deliberate; see standards/ssh-config.md.
+      :rybbit/dns [tools/dns-step :rybbit/ssh-config]
+      :rybbit/ssh-config [tools/ansible-local-step :rybbit/infrastructure]
       ;; The keypair goes strictly after the compute destroy: a key that
       ;; predeceases its host locks the operator out of a machine that still
       ;; exists (SSH Keypair Standard §3.3).
@@ -106,7 +113,10 @@
       :rybbit/ssh-cleanup [ssh/cleanup-step])
     (case step
       :rybbit/start [start-step :rybbit/infrastructure]
-      :rybbit/infrastructure [tools/infrastructure-step :rybbit/dns]
+      ;; After compute, which is where the address first exists, and before the
+      ;; stage that converges the machine.
+      :rybbit/infrastructure [tools/infrastructure-step :rybbit/ssh-config]
+      :rybbit/ssh-config [tools/ansible-local-step :rybbit/dns]
       :rybbit/dns [tools/dns-step :rybbit/ansible]
       :rybbit/ansible [tools/ansible-step :rybbit/acceptance]
       :rybbit/acceptance [tools/acceptance-step])))
@@ -114,8 +124,8 @@
   (tofu/conventional-backend-advice
    {:dir-fn #(tools/tool-dir % tool)
     :key-fn #(str (:profile %) "/" tool ".tfstate")}))
-(def side-effecting [:rybbit/infrastructure :rybbit/dns :rybbit/ansible :rybbit/acceptance
-                     :rybbit/ssh-cleanup])
+(def side-effecting [:rybbit/infrastructure :rybbit/dns :rybbit/ssh-config
+                     :rybbit/ansible :rybbit/acceptance :rybbit/ssh-cleanup])
 (def workflow
   (-> (wf/workflow {:start :rybbit/start :wire-fn wire-fn})
       (wf/advice-add :rybbit/infrastructure :before ::backend

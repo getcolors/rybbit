@@ -69,6 +69,13 @@ for variant in colors colors-vultr keygen keygen-vultr; do
   if grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' "$actual/rybbit-ansible/main.yml" | grep -Evq '^(127\.0\.0\.1|0\.0\.0\.0)$'; then
     echo "golden: $profile rendered a machine address into the converge play" >&2; exit 1
   fi
+  # SSH Config Standard §6: the local stage takes the address, the user and the
+  # alias as Ansible extra-vars, never through Selmer, so its rendered playbook
+  # carries no address at all. A dotted quad here means someone templated a
+  # run-time fact and the goldens stopped being workstation-independent.
+  if grep -rEq '([0-9]{1,3}\.){3}[0-9]{1,3}' "$actual/rybbit-ansible-local"; then
+    echo "golden: $profile rendered an address into the local ssh_config stage" >&2; exit 1
+  fi
   # SSH Keypair Standard §4.3: in keygen mode the template declares the
   # profile-named account key and references it by attribute, never by a
   # literal id; in opt-out mode it creates nothing and keeps the literal.

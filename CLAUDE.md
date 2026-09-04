@@ -21,12 +21,17 @@ under `/var/lib/rybbit`; a systemd timer takes regular database backups to R2.
 The three implementations live in the tri-colour layout, matching `netbird`:
 canonical Clojure in `green/` (`green/bb.edn`, `green/deps.edn`, `green/src/`,
 `green/tasks/`, tests under `green/test/clj`), TypeScript/Bun in `red/`, and
-Python/uv in `blue/`. Each colour has four namespaces: `validate` (the
+Python/uv in `blue/`. Each colour has five namespaces: `validate` (the
 registry, the spec and the package's own checks), `ssh` (the keypair, wrapping
-ONCE's), `tools` (the stages and acceptance) and `workflow` (the graph and
-`start-step`); red also carries `once.ts`, the path-resolution shim for ONCE's
-unexported `ssh.ts`. Green is canonical: a behavioural change lands in all
-three colours in the same commit and passes `scripts/parity.sh`. The fixtures
+ONCE's), `ssh-config` (the `~/.ssh/config` block's alias, markers and the two
+local refusals — this package's own, not ONCE's), `tools` (the stages and
+acceptance) and `workflow` (the graph and `start-step`); red also carries
+`once.ts`, the path-resolution shim for ONCE's unexported `ssh.ts`. The
+templates live under `tools/infrastructure/<provider>/`, `tools/dns/`,
+`tools/ansible/` (the converge) and `tools/ansible-local/` (the three-file
+local stage that writes the `~/.ssh/config` block). Green is canonical: a
+behavioural change lands in all three colours in the same commit and passes
+`scripts/parity.sh`. The fixtures
 and the goldens are shared across colours at the repository root —
 `test/fixtures/` and `test/resources/golden/` — with `green/test/fixtures` and
 `green/test/resources` symlinks pointing at them. Each colour dir holds a
@@ -86,8 +91,59 @@ templates carry the `<% if ssh-keygen %>` branches whose opt-out side
 contributes no byte, `ansible.cfg` names the private key in keygen mode, the
 acceptance step's `ssh` threads `identity-args`, and the delete graph removes
 the key strictly **after** the compute destroy (`:rybbit/ssh-cleanup`). The
-`~/.ssh/config` block of the SSH Config Standard is **not** adopted in this
-change; it is a follow-up.
+`~/.ssh/config` block of the sibling SSH Config Standard is adopted too; it
+has its own section below because its rules run the other way.
+
+## The `~/.ssh/config` block
+
+The package conforms to the workspace SSH Config Standard
+(`../workspace/standards/ssh-config.md`) by copying its reference
+implementation, `clickstack`, and it was born conforming: the marker is
+`# BEGIN <profile> ANSIBLE MANAGED BLOCK` with no package prefix, so
+`owned-markers` is a one-element set and no migration window exists. The
+`rybbit-ansible-local` stage is one `blockinfile` task against `~/.ssh/config`,
+run on `localhost` with `connection: local`, giving the operator
+`ssh <profile>` instead of an address, a user and an identity file.
+
+Two rules there are easy to undo by accident.
+
+The play is **this package's own copy**, deliberately not shared with ONCE's,
+which is the opposite choice from `ssh` above. `ssh` acts on profile-named
+files only this deployment uses, so sharing it spreads fixes. The local play
+writes into a file the operator shares with every host they reach, so sharing
+it would let an unrelated upstream change rewrite that file at pin-bump time
+(standard §7).
+
+Address, user, alias and `block_state` arrive as **Ansible extra-vars, never
+through Selmer**. That is what keeps `build` byte-identical across
+workstations and keeps addresses out of the goldens; the one Selmer
+conditional is the `IdentityFile`/`IdentitiesOnly` pair, rendered in keygen
+mode only, because whether the package owns a key is desired state a build
+does know. `scripts/golden.sh` fails if a dotted quad ever appears under
+`rybbit-ansible-local`.
+
+Create writes the block after compute and before DNS and convergence
+(`:rybbit/infrastructure → :rybbit/ssh-config → :rybbit/dns`). Delete removes
+it *before* the destroy, which is the reverse of the keypair: a block that
+outlives its host is stale but harmless, while a key removed early locks you
+out of a machine that still exists. The two orders disagree on purpose and
+must not be tidied into agreement.
+
+The block is inserted with `insertbefore: BOF`, because `ssh_config` takes the
+first value it obtains and `blockinfile` anchors `insertbefore` on the *last*
+match. Two local checks therefore run on a real create only, after the
+keypair preflight and after the credential check, and never on `build` or
+`--dry-run`, which must not read `~/.ssh/config` at all: a `Host <profile>`
+stanza outside this package's markers is an error naming the file and the
+line, never overwritten (the never-adopt rule); and an option standing above
+the first `Host` or `Match` line is an error too, because a BOF insert would
+capture that global option into one stanza. Both messages name the recovery.
+
+For a deployment this means a hand-written `Host rybbit-vultr` stanza in the
+operator's `~/.ssh/config`, outside the markers, makes a real create refuse by
+design: remove or rename it if it is stale, or change `profile` if it belongs
+to something else. That refusal is the standard working, not a bug to work
+around.
 
 ## The four-fixture golden and parity axis
 
@@ -112,10 +168,14 @@ public HTTP rather than an API error; no live DigitalOcean deployment existed
 to move. The Vultr tree carries a generated `firewall.tf.json`, one rule per
 protocol, address family and source CIDR (UDP 443 included, for HTTP/3), and
 an empty `vultr-http-sources` simply emits no http, https or quic rule.
-`scripts/golden.sh` checks green against all four and asserts the keypair
-standard on each (a keygen tree declares the profile-named key resource and
-references it by attribute; an opt-out tree creates none and keeps the literal
-id; no rendered tree names `$HOME/.ssh`); `scripts/parity.sh` renders all four
+Adopting the SSH Config Standard added one `rybbit-ansible-local/` tree to
+each of the four goldens and changed no other byte: the live deployment's
+`rybbit-infrastructure/` is untouched. `scripts/golden.sh` checks green
+against all four and asserts the keypair standard on each (a keygen tree
+declares the profile-named key resource and references it by attribute; an
+opt-out tree creates none and keeps the literal id; no rendered tree names
+`$HOME/.ssh`) and the config standard's §6 (no dotted quad under
+`rybbit-ansible-local`); `scripts/parity.sh` renders all four
 through every colour and diffs the trees — and the colour template trees
 (`red/resources`, blue's embedded `resources/`) — byte for byte.
 

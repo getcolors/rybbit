@@ -224,12 +224,24 @@ async def test_a_real_delete_adopts_the_recorded_address(state, home):
 
 
 def test_graph_orders_private_stack():
-    assert workflow.wire_fn("rybbit/start", {"blue/event": "create"})[1:] == \
-        ("rybbit/infrastructure",)
-    assert workflow.wire_fn("rybbit/infrastructure", {"blue/event": "create"})[1:] == \
-        ("rybbit/dns",)
+    create = {"blue/event": "create"}
+    assert workflow.wire_fn("rybbit/start", create)[1:] == ("rybbit/infrastructure",)
+    assert workflow.wire_fn("rybbit/infrastructure", create)[1:] == ("rybbit/ssh-config",)
+    assert workflow.wire_fn("rybbit/ssh-config", create)[1:] == ("rybbit/dns",)
+    assert workflow.wire_fn("rybbit/dns", create)[1:] == ("rybbit/ansible",)
+    assert workflow.wire_fn("rybbit/ansible", create)[1:] == ("rybbit/acceptance",)
     assert workflow.wire_fn("rybbit/start", {"blue/event": "delete"})[1:] == \
         ("rybbit/ansible",)
+
+
+def test_delete_removes_the_config_block_before_the_destroy():
+    # The opposite of the keypair below: a block that outlives its host is
+    # stale but harmless, so removing it early costs nothing.
+    delete = {"blue/event": "delete"}
+    assert workflow.wire_fn("rybbit/ansible", delete)[1:] == ("rybbit/dns",)
+    assert workflow.wire_fn("rybbit/dns", delete)[1:] == ("rybbit/ssh-config",)
+    assert workflow.wire_fn("rybbit/ssh-config", delete)[1:] == ("rybbit/infrastructure",)
+    assert "rybbit/ssh-config" in workflow.side_effecting
 
 
 def test_delete_removes_the_key_after_the_compute_destroy():

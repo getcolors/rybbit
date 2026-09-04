@@ -21,6 +21,8 @@ both compute providers.
 - **Access**: The machine keypair is generated and owned by the deployment at
   `~/.ssh/<profile>` (the SSH Keypair Standard); set `<provider>-ssh-keys` to
   an existing account key to opt out.
+- **Reach**: `ssh <profile>` works: the package writes a managed block in
+  `~/.ssh/config` (the SSH Config Standard) on create and removes it on delete.
 - **Ingress**: Caddy terminating origin TLS on ports 80/443 (plus UDP 443 for
   HTTP/3), reverse-proxying `/api/*` to Rybbit backend (Fastify) and the rest
   to Rybbit client (Next.js).

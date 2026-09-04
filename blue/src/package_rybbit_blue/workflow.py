@@ -10,7 +10,7 @@ from blue.lifecycle import preflight
 from blue.workflow import advice_add, failed, workflow
 from package_once_blue import compute as once_compute
 
-from . import ssh, tools, validate
+from . import ssh, ssh_config, tools, validate
 
 DEFAULTS = {"provider-compute": validate.default_compute_provider,
             "provider-dns": "cloudflare",
@@ -77,6 +77,9 @@ async def start_step(original: dict, env: dict | None = None) -> dict:
             opts = ssh.preflight(ssh.with_machine_key(opts))
             if failed(opts):
                 return opts
+            opts = ssh_config.preflight(opts)
+            if failed(opts):
+                return opts
             return {**opts, "blue/exit": 0}
         return {**ssh.with_machine_key(opts), "blue/exit": 0}
 
@@ -104,7 +107,13 @@ def wire_fn(step: str, run_opts: dict):
         return {
             "rybbit/start": (start_step, "rybbit/ansible"),
             "rybbit/ansible": (tools.ansible_step, "rybbit/dns"),
-            "rybbit/dns": (tools.dns_step, "rybbit/infrastructure"),
+            # The `~/.ssh/config` block goes before the destroy, the opposite
+            # of the keypair below. A block that outlives its host is stale but
+            # harmless; a key that predeceases its host locks the operator out
+            # of a machine that still exists. Both orders are deliberate; see
+            # standards/ssh-config.md.
+            "rybbit/dns": (tools.dns_step, "rybbit/ssh-config"),
+            "rybbit/ssh-config": (tools.ansible_local_step, "rybbit/infrastructure"),
             # The keypair goes strictly after the compute destroy: a key that
             # predeceases its host locks the operator out of a machine that
             # still exists (SSH Keypair Standard §3.3).
@@ -113,7 +122,10 @@ def wire_fn(step: str, run_opts: dict):
         }.get(step)
     return {
         "rybbit/start": (start_step, "rybbit/infrastructure"),
-        "rybbit/infrastructure": (tools.infrastructure_step, "rybbit/dns"),
+        # After compute, which is where the address first exists, and before
+        # the stage that converges the machine.
+        "rybbit/infrastructure": (tools.infrastructure_step, "rybbit/ssh-config"),
+        "rybbit/ssh-config": (tools.ansible_local_step, "rybbit/dns"),
         "rybbit/dns": (tools.dns_step, "rybbit/ansible"),
         "rybbit/ansible": (tools.ansible_step, "rybbit/acceptance"),
         "rybbit/acceptance": (tools.acceptance_step,),
@@ -126,8 +138,8 @@ def backend_advice(tool: str):
         key=lambda o, tool=tool: f"{o.get('profile')}/{tool}.tfstate")
 
 
-side_effecting = ["rybbit/infrastructure", "rybbit/dns", "rybbit/ansible",
-                  "rybbit/acceptance", "rybbit/ssh-cleanup"]
+side_effecting = ["rybbit/infrastructure", "rybbit/dns", "rybbit/ssh-config",
+                  "rybbit/ansible", "rybbit/acceptance", "rybbit/ssh-cleanup"]
 
 
 def create_workflow():

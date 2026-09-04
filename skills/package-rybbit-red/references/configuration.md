@@ -79,6 +79,42 @@ this deployment does not own, refuses the create rather than being overwritten
 or adopted. Set `<provider>-ssh-keys` to an existing account key id to opt out;
 the package then creates and deletes no key material.
 
+### The `~/.ssh/config` block
+
+A real `create` writes one managed block into `~/.ssh/config`, after the
+machine exists and before it is converged, so `ssh <profile>` needs no
+address, no user and no `-i` flag:
+
+```sshconfig
+# BEGIN <profile> ANSIBLE MANAGED BLOCK
+Host <profile>
+    HostName <ip>
+    User root
+    Port 22
+    IdentityFile ~/.ssh/<profile>      # keygen mode only
+    IdentitiesOnly yes                 # keygen mode only
+    StrictHostKeyChecking accept-new
+    ForwardAgent no
+# END <profile> ANSIBLE MANAGED BLOCK
+```
+
+The alias is the profile; there is no separate key for it. The `IdentityFile`
+pair appears only in keygen mode, where the package knows the key because it
+generated it; with `<provider>-ssh-keys` set the operator's own arrangements
+find the key. `delete` removes the block before the machine is destroyed (the
+keypair, by contrast, goes after it). `build` and `--dry-run` never read the
+file.
+
+The block is inserted at the top of the file, because `ssh_config` takes the
+first value it obtains and a `Host *` stanza above it would win on `User` and
+`IdentityFile`. Two layouts make a real create refuse rather than rewrite the
+file, each naming the file and the line: a `Host <profile>` stanza outside
+the markers (remove or rename it if it is stale, or change `profile` if it
+belongs to something else — the package never overwrites it), and an option
+standing above the first `Host` or `Match` line, which is global today and
+would be captured into this one stanza (move it below the managed block, or
+into an explicit `Host *` stanza at the end of the file).
+
 ### Switching providers
 
 Every provider shares one state key per profile, so switching is a rebuild:

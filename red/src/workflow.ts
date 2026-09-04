@@ -9,6 +9,7 @@ import * as tofu from "red/tofu";
 import { adviceAdd, failed, workflow, type Opts, type WireDecl } from "red/workflow";
 import { compute } from "package-once-red";
 import * as ssh from "./ssh.ts";
+import * as sshConfig from "./ssh-config.ts";
 import * as tools from "./tools.ts";
 import * as validate from "./validate.ts";
 
@@ -94,6 +95,7 @@ export async function startStep(
         let next = await ssh.ensureKey(current, async () => state.params);
         if (failed(next)) return next;
         next = await ssh.preflight(ssh.withMachineKey(next));
+        if (!failed(next)) next = sshConfig.preflight(next);
         return failed(next) ? next : { ...next, "red/exit": 0 };
       }
       return { ...ssh.withMachineKey(current), "red/exit": 0 };
@@ -106,7 +108,12 @@ export function wireFn(step: string, runOpts: Opts): WireDecl | undefined {
     const graph: Record<string, WireDecl> = {
       "rybbit/start": [startStep, "rybbit/ansible"],
       "rybbit/ansible": [tools.ansibleStep, "rybbit/dns"],
-      "rybbit/dns": [tools.dnsStep, "rybbit/infrastructure"],
+      // The `~/.ssh/config` block goes before the destroy, the opposite of the
+      // keypair below. A block that outlives its host is stale but harmless; a
+      // key that predeceases its host locks the operator out of a machine that
+      // still exists. Both orders are deliberate; see standards/ssh-config.md.
+      "rybbit/dns": [tools.dnsStep, "rybbit/ssh-config"],
+      "rybbit/ssh-config": [tools.ansibleLocalStep, "rybbit/infrastructure"],
       // The keypair goes strictly after the compute destroy: a key that
       // predeceases its host locks the operator out of a machine that still
       // exists (SSH Keypair Standard §3.3).
@@ -117,7 +124,10 @@ export function wireFn(step: string, runOpts: Opts): WireDecl | undefined {
   }
   const graph: Record<string, WireDecl> = {
     "rybbit/start": [startStep, "rybbit/infrastructure"],
-    "rybbit/infrastructure": [tools.infrastructureStep, "rybbit/dns"],
+    // After compute, which is where the address first exists, and before the
+    // stage that converges the machine.
+    "rybbit/infrastructure": [tools.infrastructureStep, "rybbit/ssh-config"],
+    "rybbit/ssh-config": [tools.ansibleLocalStep, "rybbit/dns"],
     "rybbit/dns": [tools.dnsStep, "rybbit/ansible"],
     "rybbit/ansible": [tools.ansibleStep, "rybbit/acceptance"],
     "rybbit/acceptance": [tools.acceptanceStep],
@@ -133,8 +143,8 @@ export function backendAdvice(tool: string) {
 }
 
 export const sideEffecting = [
-  "rybbit/infrastructure", "rybbit/dns", "rybbit/ansible", "rybbit/acceptance",
-  "rybbit/ssh-cleanup",
+  "rybbit/infrastructure", "rybbit/dns", "rybbit/ssh-config",
+  "rybbit/ansible", "rybbit/acceptance", "rybbit/ssh-cleanup",
 ];
 
 function create() {

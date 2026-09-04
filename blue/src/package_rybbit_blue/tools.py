@@ -16,11 +16,12 @@ from blue.runtime import runtime
 from blue.scaffold import PRESERVE_JINJA_DELIMITERS, content_spec, scaffold
 from package_once_blue import compute as once_compute
 
-from . import ssh, validate
+from . import ssh, ssh_config, validate
 
 infrastructure_tool = "rybbit-infrastructure"
 dns_tool = "rybbit-dns"
 ansible_tool = "rybbit-ansible"
+ansible_local_tool = "rybbit-ansible-local"
 ROOT = Path(__file__).parent / "resources"
 template_opts = PRESERVE_JINJA_DELIMITERS
 
@@ -191,6 +192,44 @@ async def dns_step(opts: dict) -> dict:
              raw_spec(f"{dir}/record.tf.json", dns_json(data))]
     return await tofu.tofu_with_spec(
         opts, specs, dir=dir, env=credential_env(opts, "provider-dns"))
+
+
+# ---------------------------------------------------------- ansible (local)
+
+
+def ansible_local_data(opts: dict) -> dict:
+    """Only what a `build` genuinely knows. The address, the user and the alias
+    are run-time facts and reach the play as extra-vars instead, so the
+    rendered playbook carries no IP and is identical on every workstation (SSH
+    Config Standard §6)."""
+    return {**opts,
+            "ssh-keygen": validate.keygen(opts),
+            "ssh-config-identity-file": ssh_config.identity_file(opts)}
+
+
+def ansible_local_specs(opts: dict) -> list[dict]:
+    dir = tool_dir(opts, ansible_local_tool)
+    data = ansible_local_data(opts)
+    return [spec(template("ansible-local", name), f"{dir}/{name}", data)
+            for name in ["ansible.cfg", "inventory.ini", "main.yml"]]
+
+
+async def ansible_local_step(opts: dict) -> dict:
+    """Write or remove the `~/.ssh/config` block. The same playbook serves both
+    events; `block_state` is what distinguishes them."""
+    dir = tool_dir(opts, ansible_local_tool)
+    delete = opts.get("blue/event") == "delete"
+    return await ansible_with_spec(
+        opts, ansible_local_specs(opts),
+        dir=dir, inventory="inventory.ini",
+        playbooks={"create": "main.yml", "delete": "main.yml"},
+        extra_vars={"host_alias": ssh_config.host_alias(opts),
+                    "ip": opts.get("ip") or fallback_params(opts)["ip"],
+                    "user": opts.get("user") or "root",
+                    "block_state": "absent" if delete else "present"})
+
+
+# ---------------------------------------------------------------- ansible
 
 
 def _pretty(value, indent=0):

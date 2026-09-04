@@ -10,8 +10,12 @@ import type { Opts } from "red/workflow";
 import { failed } from "red/workflow";
 import { compute } from "package-once-red";
 import * as ssh from "./ssh.ts";
+import * as sshConfig from "./ssh-config.ts";
 import * as validate from "./validate.ts";
 
+import ansibleLocalCfg from "../resources/tools/ansible-local/ansible.cfg" with { type: "text" };
+import ansibleLocalInventory from "../resources/tools/ansible-local/inventory.ini" with { type: "text" };
+import ansibleLocalMain from "../resources/tools/ansible-local/main.yml" with { type: "text" };
 import ansibleCaddyfile from "../resources/tools/ansible/Caddyfile" with { type: "text" };
 import ansibleCfg from "../resources/tools/ansible/ansible.cfg" with { type: "text" };
 import ansibleBackup from "../resources/tools/ansible/backup" with { type: "text" };
@@ -25,6 +29,7 @@ import infrastructureVultrTf from "../resources/tools/infrastructure/vultr/main.
 export const infrastructureTool = "rybbit-infrastructure";
 export const dnsTool = "rybbit-dns";
 export const ansibleTool = "rybbit-ansible";
+export const ansibleLocalTool = "rybbit-ansible-local";
 export const templateOpts = PRESERVE_JINJA_DELIMITERS;
 
 export function toolDir(opts: Opts, tool: string): string {
@@ -34,6 +39,9 @@ export function toolDir(opts: Opts, tool: string): string {
 // The template tree this colour carries, keyed the way green names its
 // classpath resources: "<path>/<file>" with dots as directories.
 const templates: Record<string, string> = {
+  "ansible-local/ansible.cfg": ansibleLocalCfg,
+  "ansible-local/inventory.ini": ansibleLocalInventory,
+  "ansible-local/main.yml": ansibleLocalMain,
   "ansible/Caddyfile": ansibleCaddyfile,
   "ansible/ansible.cfg": ansibleCfg,
   "ansible/backup": ansibleBackup,
@@ -228,6 +236,50 @@ function pretty(value: unknown, indent = 0): string {
   }
   return JSON.stringify(value ?? null);
 }
+
+// ---------------------------------------------------------- ansible (local)
+
+// Only what a `build` genuinely knows. The address, the user and the alias are
+// run-time facts and reach the play as extra-vars instead, so the rendered
+// playbook carries no IP and is identical on every workstation (SSH Config
+// Standard §6).
+export function ansibleLocalData(opts: Opts): Opts {
+  return {
+    ...opts,
+    "ssh-keygen": validate.keygen(opts),
+    "ssh-config-identity-file": sshConfig.identityFile(opts),
+  };
+}
+
+export function ansibleLocalSpecs(opts: Opts): Spec[] {
+  const dir = toolDir(opts, ansibleLocalTool);
+  const data = ansibleLocalData(opts);
+  return [
+    spec(template("ansible-local", "ansible.cfg"), `${dir}/ansible.cfg`, data),
+    spec(template("ansible-local", "inventory.ini"), `${dir}/inventory.ini`, data),
+    spec(template("ansible-local", "main.yml"), `${dir}/main.yml`, data),
+  ];
+}
+
+// Write or remove the `~/.ssh/config` block. The same playbook serves both
+// events; `block_state` is what distinguishes them.
+export async function ansibleLocalStep(opts: Opts): Promise<Opts> {
+  const dir = toolDir(opts, ansibleLocalTool);
+  const isDelete = opts["red/event"] === "delete";
+  return ansible.ansibleWithSpec(opts, {
+    dir,
+    inventory: "inventory.ini",
+    playbooks: { create: "main.yml", delete: "main.yml" },
+    extraVars: {
+      host_alias: sshConfig.hostAlias(opts),
+      ip: opts.ip ?? fallbackParams(opts).ip,
+      user: opts.user ?? "root",
+      block_state: isDelete ? "absent" : "present",
+    },
+  }, ansibleLocalSpecs(opts));
+}
+
+// ---------------------------------------------------------------- ansible
 
 export function inventory(opts: Opts): string {
   return pretty({

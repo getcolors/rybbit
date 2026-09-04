@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { renderTemplate } from "red/scaffold";
 import { StepError, type Opts } from "red/workflow";
 import * as ssh from "../src/ssh.ts";
+import * as sshConfig from "../src/ssh-config.ts";
 import * as tools from "../src/tools.ts";
 import * as validate from "../src/validate.ts";
 import * as workflow from "../src/workflow.ts";
@@ -28,9 +29,9 @@ const vultrFixture = (overrides: Opts = {}) => readFixture(vultrFixtureFile, ove
 const keygen = (overrides: Opts = {}) => readFixture(keygenFile, overrides);
 const keygenVultr = (overrides: Opts = {}) => readFixture(keygenVultrFile, overrides);
 
-// ~/.ssh redirection: ONCE's ssh module reads $HOME at call time, exactly so
-// tests can point it at a fresh temporary home. Nothing here may touch the
-// real one.
+// ~/.ssh redirection: ONCE's ssh module and this package's ssh-config both
+// read $HOME at call time, exactly so tests can point them at a fresh
+// temporary home. Nothing here may touch the real one.
 let savedHome: string | undefined;
 let home: string;
 beforeEach(() => {
@@ -661,6 +662,169 @@ describe("ssh", () => {
   });
 });
 
+// --- ssh-config --------------------------------------------------------------
+
+describe("ssh-config", () => {
+  const configFile = () => join(home, ".ssh", "config");
+
+  test("the alias is the profile and the identity file keeps the tilde", () => {
+    expect(sshConfig.hostAlias(fixture())).toBe("rybbit-fixture");
+    expect(sshConfig.identityFile(fixture())).toBe("~/.ssh/rybbit-fixture");
+    expect(sshConfig.identityFile(fixture())).not.toContain(home);
+  });
+
+  test("the marker is the alias alone, and owned-markers holds only it", () => {
+    expect(sshConfig.beginMarker("rybbit-vultr")).toBe("# BEGIN rybbit-vultr ANSIBLE MANAGED BLOCK");
+    expect(sshConfig.endMarker("rybbit-vultr")).toBe("# END rybbit-vultr ANSIBLE MANAGED BLOCK");
+    // Born conforming: no marker migration is in flight.
+    const owned = sshConfig.ownedMarkers("rybbit-vultr");
+    expect([...owned.begin]).toEqual(["# BEGIN rybbit-vultr ANSIBLE MANAGED BLOCK"]);
+    expect([...owned.end]).toEqual(["# END rybbit-vultr ANSIBLE MANAGED BLOCK"]);
+  });
+
+  test("host patterns are read from a Host line", () => {
+    expect(sshConfig.hostPatterns("Host rybbit-fixture")).toEqual(["rybbit-fixture"]);
+    expect(sshConfig.hostPatterns("  host   web rybbit-fixture  db ")).toEqual(["web", "rybbit-fixture", "db"]);
+    expect(sshConfig.hostPatterns("    HostName 192.0.2.1")).toBeUndefined();
+    expect(sshConfig.hostPatterns("Match host rybbit-fixture")).toBeUndefined();
+  });
+
+  test("a foreign stanza is found; our own block is not foreign", () => {
+    expect(sshConfig.foreignStanzaLine(
+      ["Host other", "    HostName 192.0.2.1", "", "Host rybbit-fixture"],
+      "rybbit-fixture")).toBe(4);
+    const alias = "rybbit-fixture";
+    expect(sshConfig.foreignStanzaLine(
+      [sshConfig.beginMarker(alias), `Host ${alias}`, "    HostName 192.0.2.1",
+       sshConfig.endMarker(alias)], alias)).toBeUndefined();
+  });
+
+  test("a stanza after our block is still foreign", () => {
+    const alias = "rybbit-fixture";
+    expect(sshConfig.foreignStanzaLine(
+      [sshConfig.beginMarker(alias), `Host ${alias}`, sshConfig.endMarker(alias),
+       `Host ${alias}`], alias)).toBe(4);
+  });
+
+  test("a block under a package-prefixed marker is foreign", () => {
+    // This package never wrote a `# BEGIN rybbit <alias>` marker, so a block
+    // carrying one belongs to nobody this package knows.
+    const alias = "rybbit-vultr";
+    expect(sshConfig.foreignStanzaLine(
+      [`# BEGIN rybbit ${alias} ANSIBLE MANAGED BLOCK`, `Host ${alias}`,
+       `# END rybbit ${alias} ANSIBLE MANAGED BLOCK`], alias)).toBe(2);
+  });
+
+  test("multi-pattern host lines count; unrelated files are left alone", () => {
+    expect(sshConfig.foreignStanzaLine(["Host web rybbit-fixture db"], "rybbit-fixture")).toBe(1);
+    expect(sshConfig.foreignStanzaLine(["Host build", "Host rybbit-other"], "rybbit-fixture"))
+      .toBeUndefined();
+  });
+
+  test("an option above the first Host is refused; comments and Host openers are fine", () => {
+    expect(sshConfig.leadingOptionLine(["ServerAliveInterval 60", "Host a"])).toBe(1);
+    expect(sshConfig.leadingOptionLine(["# comment", "", "IdentitiesOnly yes", "Host a"])).toBe(3);
+    expect(sshConfig.leadingOptionLine(["Host a", "    User root"])).toBeUndefined();
+    expect(sshConfig.leadingOptionLine(["# lead comment", "", "Host a", "    User root"])).toBeUndefined();
+    expect(sshConfig.leadingOptionLine(["Match host b", "    User root"])).toBeUndefined();
+    expect(sshConfig.leadingOptionLine(["# nothing here", ""])).toBeUndefined();
+  });
+
+  test("preflight refuses rather than overwrites", () => {
+    const refused = sshConfig.preflight(fixture(), {
+      adoptError: () => "already declares `Host x`",
+      placementError: () => undefined,
+    });
+    expect(refused["red/exit"]).toBe(1);
+    expect(String(refused["red/err"])).toContain("already declares");
+    const clean = sshConfig.preflight(fixture(), {
+      adoptError: () => undefined,
+      placementError: () => undefined,
+    });
+    expect(clean["red/exit"]).toBeUndefined();
+  });
+
+  test("adopt error names the file and the line; our own block and a missing file pass", () => {
+    expect(sshConfig.adoptError(fixture())).toBeUndefined();
+    write(configFile(), "Host other\n    HostName 192.0.2.1\n\nHost rybbit-fixture\n    User root\n");
+    const error = String(sshConfig.adoptError(fixture()));
+    expect(error).toContain(configFile());
+    expect(error).toContain("`Host rybbit-fixture` at line 4");
+    expect(error).toContain("will not overwrite it");
+    const alias = "rybbit-fixture";
+    write(configFile(), `${sshConfig.beginMarker(alias)}\nHost ${alias}\n    HostName 192.0.2.1\n${sshConfig.endMarker(alias)}\n`);
+    expect(sshConfig.adoptError(fixture())).toBeUndefined();
+  });
+
+  test("placement error names the file and the line and mentions the recovery", () => {
+    write(configFile(), "# comment\n\n\nIdentitiesOnly yes\nHost a\n");
+    const error = String(sshConfig.placementError(fixture()));
+    expect(error).toContain(configFile());
+    expect(error).toContain("line 4");
+    expect(error).toContain("Host *");
+  });
+
+  test("preflight reads the redirected file end to end", () => {
+    write(configFile(), "Host rybbit-fixture\n    HostName 192.0.2.1\n");
+    const refused = sshConfig.preflight(fixture());
+    expect(refused["red/exit"]).toBe(1);
+    expect(String(refused["red/err"])).toContain("already declares");
+    write(configFile(), "ServerAliveInterval 60\nHost a\n");
+    const placed = sshConfig.preflight(fixture());
+    expect(placed["red/exit"]).toBe(1);
+    expect(String(placed["red/err"])).toContain("line 1");
+    write(configFile(), "Host a\n    User root\n");
+    expect(sshConfig.preflight(fixture())["red/exit"]).toBeUndefined();
+  });
+
+  test("build and dry-run never read the config", async () => {
+    // The only readers are adoptError and placementError; a real create is
+    // the one event that reaches them, and it stops at the credentials here.
+    // A leading-option file that would refuse a real create must not disturb
+    // a build or a dry-run.
+    write(configFile(), "ServerAliveInterval 60\nHost rybbit-fixture\n");
+    for (const opts of [fixture({ "red/event": "build" }),
+                        keygen({ "red/event": "build" }),
+                        fixture({ "red/event": "create", "red/dry-run": true })]) {
+      expect((await workflow.startStep(opts, {}))["red/exit"]).toBe(0);
+    }
+  });
+
+  test("the local play renders no address and follows keygen mode", () => {
+    const data = tools.ansibleLocalData(fixture({ ip: "203.0.113.7" }));
+    expect(data["ssh-config-identity-file"]).toBe("~/.ssh/rybbit-fixture");
+    expect(data["ssh-keygen"]).toBe(false);
+    expect(tools.ansibleLocalData(keygen())["ssh-keygen"]).toBe(true);
+  });
+
+  test("the local stage renders three files", () => {
+    const targets = tools.ansibleLocalSpecs(fixture()).map((s) => String(s.target));
+    for (const file of ["/ansible.cfg", "/inventory.ini", "/main.yml"]) {
+      expect(targets.some((t) => t.endsWith(file))).toBe(true);
+    }
+    expect(targets.every((t) => t.includes("rybbit-ansible-local"))).toBe(true);
+  });
+
+  test("the rendered play carries the IdentityFile pair only in keygen mode", () => {
+    const render = (opts: Opts) =>
+      renderTemplate(tools.template("ansible-local", "main.yml"), tools.ansibleLocalData(opts), tools.templateOpts);
+    const keygenPlay = render(keygen());
+    expect(keygenPlay).toContain("IdentityFile ~/.ssh/rybbit-keygen-fixture");
+    expect(keygenPlay).toContain("IdentitiesOnly yes");
+    // The header comment names the pair; the rendered option lines must not.
+    const optoutPlay = render(fixture());
+    expect(optoutPlay).not.toContain("IdentityFile ~/.ssh/");
+    expect(optoutPlay).not.toContain("IdentitiesOnly yes");
+    // Address, user and alias are Ansible's, never Selmer's.
+    for (const play of [keygenPlay, optoutPlay]) {
+      expect(play).toContain("insertbefore: BOF");
+      expect(play).toContain("HostName {{ ip }}");
+      expect(play).toContain("Host {{ host_alias }}");
+      expect(play).not.toMatch(/([0-9]{1,3}\.){3}[0-9]{1,3}/);
+    }
+  });
+});
+
 // --- workflow ----------------------------------------------------------------
 
 describe("workflow", () => {
@@ -847,8 +1011,22 @@ describe("workflow", () => {
     const next = (step: string, event: string) =>
       (workflow.wireFn(step, { "red/event": event }) ?? []).slice(1);
     expect(next("rybbit/start", "create")).toEqual(["rybbit/infrastructure"]);
-    expect(next("rybbit/infrastructure", "create")).toEqual(["rybbit/dns"]);
+    expect(next("rybbit/infrastructure", "create")).toEqual(["rybbit/ssh-config"]);
+    expect(next("rybbit/ssh-config", "create")).toEqual(["rybbit/dns"]);
+    expect(next("rybbit/dns", "create")).toEqual(["rybbit/ansible"]);
+    expect(next("rybbit/ansible", "create")).toEqual(["rybbit/acceptance"]);
     expect(next("rybbit/start", "delete")).toEqual(["rybbit/ansible"]);
+  });
+
+  test("delete removes the config block before the destroy", () => {
+    // The opposite of the keypair below: a block that outlives its host is
+    // stale but harmless, so removing it early costs nothing.
+    const next = (step: string) =>
+      (workflow.wireFn(step, { "red/event": "delete" }) ?? []).slice(1);
+    expect(next("rybbit/ansible")).toEqual(["rybbit/dns"]);
+    expect(next("rybbit/dns")).toEqual(["rybbit/ssh-config"]);
+    expect(next("rybbit/ssh-config")).toEqual(["rybbit/infrastructure"]);
+    expect(workflow.sideEffecting).toContain("rybbit/ssh-config");
   });
 
   test("delete removes the key after the compute destroy", () => {
