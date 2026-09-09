@@ -2,22 +2,47 @@
 
 A tri-colour Package Skill (green, red, blue) for deploying a
 production-oriented single-node [Rybbit](https://github.com/rybbit-io/rybbit)
-privacy-friendly analytics platform on DigitalOcean or Vultr.
+privacy-friendly analytics platform on a VM provisioned by colors-compute.
 
 The canonical implementation is [Green](https://github.com/getcolors/green)
 (Clojure); the same deployment can run through the TypeScript
 (`package-rybbit-red`) or Python (`package-rybbit-blue`) implementation — all
 three render byte-identical artifacts, which `scripts/parity.sh` proves for
-both compute providers.
+the provider and key-mode fixtures.
+
+## Compute ownership
+
+The pinned `colors-compute` library owns provider selection, remote S3/R2
+state, deployment coordination, machine keys, network policy and the single
+node. This package supplies singleton topology and SSH/HTTP ingress, then
+uses the returned address, login user and SSH identity for its application
+steps. New provider support belongs in the library; consumers update its pin.
+The application needs a supported Ubuntu image and sufficient memory for
+Rybbit and its data services. Build first to check adapter capabilities.
+
+Use `rybbit-ssh-sources` and `rybbit-http-sources` for neutral CIDR
+allowlists. Existing selected-provider source options remain compatible.
+External account key references require `ssh-private-key-path`; external
+private keys are never generated or removed. The local SSH block writes
+`IdentityFile` only for a managed deployment key.
+
+Existing `<profile>/rybbit-infrastructure.tfstate` is refused before
+compute mutation. Do not remove it to bypass this check: migrate ownership
+explicitly or destroy the old deployment through its original version first.
+Unreadable state and provider mismatches fail closed.
+
+The default compute provider remains `vultr`. An explicit `COLORS_PAR_IP`
+changes only the delete-cleanup target after a successful owned-state read;
+it cannot bypass unreadable state or provider identity checks.
+
+Rybbit requests TCP 22 for SSH, TCP 80/443 for HTTP, and UDP 443 for HTTP/3.
+Empty HTTP sources close both HTTP and HTTP/3 ingress.
 
 ## Architecture
 
-- **Compute**: A dedicated DigitalOcean Droplet (with dynamic account-default
-  VPC discovery) or Vultr instance (with a generated per-CIDR firewall group),
-  selected by `provider-compute`. The provider operations — selection, the
-  CIDR checks, the rebuild-only switch rule — are ONCE's `compute` namespace
-  over this package's two-entry registry (the workspace Compute Provider
-  Standard).
+- **Compute**: The shared colors-compute library owns provider adapters, remote
+  backend state, deployment locking and machine-key lifecycle. Rybbit supplies
+  one node and its ingress requirements.
 - **Access**: The machine keypair is generated and owned by the deployment at
   `~/.ssh/<profile>` (the SSH Keypair Standard); set `<provider>-ssh-keys` to
   an existing account key to opt out.

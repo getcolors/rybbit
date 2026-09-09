@@ -57,7 +57,10 @@ digitalocean-name: rybbit-ams3
 digitalocean-region: ams3
 digitalocean-size: s-4vcpu-8gb
 digitalocean-image: ubuntu-24-04-x64
-digitalocean-ssh-keys: "58495393"
+# Managed machine keys are the default. To use an existing provider key,
+# set both its reference and the matching private key path explicitly.
+# digitalocean-ssh-keys: "58495393"
+# ssh-private-key-path: /absolute/path/to/operator-key
 
 # SSH is key-only and used for convergence and recovery. HTTP(S) is public.
 digitalocean-ssh-sources:

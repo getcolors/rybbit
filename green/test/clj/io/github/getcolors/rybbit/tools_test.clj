@@ -4,100 +4,9 @@
             [green.ansible :as ansible]
             [green.scaffold :as sc]
             [io.github.getcolors.rybbit.tools :as tools]
+            [io.github.getcolors.rybbit.compute :as compute]
             [io.github.getcolors.rybbit.validate :as validate]
             [io.github.getcolors.rybbit.validate-test :refer [fixture vultr-fixture keygen keygen-vultr]]))
-
-(defn- render-infrastructure
-  "The compute template for `opts`' provider, rendered as `build` would."
-  [opts]
-  (sc/render-template (tools/template (str "infrastructure." (:provider-compute opts)) "main.tf")
-                      (tools/infrastructure-data opts)
-                      tools/template-opts))
-
-(deftest infrastructure-discovers-default-vpc
-  (let [data (tools/infrastructure-data (fixture))]
-    (is (= ["0.0.0.0/0" "::/0"] (tools/cidrs data :digitalocean-http-sources)))))
-
-(deftest compute-keys-follow-the-selected-provider
-  ;; Firewall sources are named after the provider, so a step reaching them
-  ;; through a fixed digitalocean- prefix silently renders an empty list on
-  ;; any other provider -- a firewall with no rules rather than an error.
-  (is (= ["0.0.0.0/0" "::/0"]
-         (tools/cidrs (tools/infrastructure-data (vultr-fixture)) :vultr-http-sources)))
-  (is (str/includes? (:ssh-sources-hcl (tools/infrastructure-data (vultr-fixture))) "0.0.0.0/0"))
-  (is (str/includes? (:http-sources-hcl (tools/infrastructure-data (fixture))) "0.0.0.0/0")))
-
-(deftest hostname-is-provider-neutral
-  ;; The playbook used digitalocean-name, which renders empty on Vultr.
-  (is (= "rybbit-fixture" (tools/compute-name (fixture))))
-  (is (= "rybbit-vultr-fixture" (tools/compute-name (vultr-fixture))))
-  ;; Build and dry-run render without a provider name at all.
-  (is (= "rybbit-fixture" (tools/compute-name (fixture :digitalocean-name nil))))
-  (is (str/includes? (slurp "src/resources/io/github/getcolors/rybbit/tools/ansible/main.yml")
-                     "<{ compute-name }>")))
-
-(deftest infrastructure-data-carries-the-name-and-the-keypair-mode
-  ;; One resolved name and one mode reach every template, so no template
-  ;; branches on the provider or re-derives either.
-  (let [data (tools/infrastructure-data (vultr-fixture))]
-    (is (= "rybbit-vultr-fixture" (:compute-name data)))
-    (is (false? (:ssh-keygen data))))
-  (let [data (tools/infrastructure-data (keygen-vultr))]
-    (is (= "rybbit-vultr-keygen-fixture" (:compute-name data)))
-    (is (true? (:ssh-keygen data))))
-  (is (true? (:ssh-keygen (tools/ansible-data (keygen)))))
-  (is (false? (:ssh-keygen (tools/ansible-data (fixture))))))
-
-(deftest templates-name-the-machine-from-one-resolved-value
-  ;; Every label -- droplet name, instance label, firewall group and names,
-  ;; and params.name -- interpolates compute-name, never a provider key or the
-  ;; profile directly, so an override and the fallback land everywhere at once.
-  (doseq [provider ["vultr" "digitalocean"]]
-    (let [template (slurp (str "src/resources/io/github/getcolors/rybbit/tools/infrastructure/" provider "/main.tf"))]
-      (is (not (str/includes? template (str "<{ " provider "-name }>"))) provider)
-      (is (str/includes? template "name = \"<{ compute-name }>\"") provider)
-      (is (str/includes? template (str "provider = \"" provider "\"")) provider)))
-  (let [rendered (render-infrastructure (vultr-fixture :vultr-name "custom-label"))]
-    (is (str/includes? rendered "label = \"custom-label\""))
-    (is (str/includes? rendered "description = \"custom-label\""))
-    (is (str/includes? rendered "name = \"custom-label\""))))
-
-(deftest empty-http-sources-renders-no-public-http
-  ;; An empty `<provider>-http-sources` is allowed and means no public HTTP:
-  ;; Vultr's generated rules simply omit http, https and quic, and the
-  ;; DigitalOcean rules are a dynamic block over an empty list. SSH stays.
-  (testing "Vultr"
-    (let [json (tools/vultr-firewall-json (tools/infrastructure-data (vultr-fixture :vultr-http-sources [])))]
-      (is (= 2 (count (re-seq #"\"firewall_group_id\"" json))))
-      (is (= #{"\"22\""} (set (map second (re-seq #"\"port\" : (\"\d+\")" json)))))
-      (is (not (str/includes? json "udp")))))
-  (testing "DigitalOcean"
-    (let [rendered (render-infrastructure (fixture :digitalocean-http-sources []))]
-      (is (str/includes? rendered "length([]) > 0 ? ["))
-      (is (str/includes? rendered "source_addresses = []"))
-      (is (str/includes? rendered "port_range       = \"22\"")))
-    (let [rendered (render-infrastructure (fixture))]
-      (is (str/includes? rendered "length([\"0.0.0.0/0\", \"::/0\"]) > 0 ? ["))
-      (is (str/includes? rendered "{ protocol = \"udp\", port_range = \"443\" }")))))
-
-(deftest vultr-cidrs-split-into-address-and-prefix
-  ;; Vultr takes subnet and subnet_size as separate fields, per address family.
-  (is (= {:subnet "0.0.0.0" :subnet-size 0 :ip-type "v4"} (tools/cidr-parts "0.0.0.0/0")))
-  (is (= {:subnet "::" :subnet-size 0 :ip-type "v6"} (tools/cidr-parts "::/0")))
-  (is (= {:subnet "203.0.113.4" :subnet-size 32 :ip-type "v4"} (tools/cidr-parts "203.0.113.4")))
-  (is (= {:subnet "2001:db8::1" :subnet-size 128 :ip-type "v6"} (tools/cidr-parts "2001:db8::1"))))
-
-(deftest vultr-firewall-opens-ssh-http-and-http3
-  (let [json (tools/vultr-firewall-json (vultr-fixture))]
-    ;; HTTP/3 rides UDP 443. Caddy advertises it through alt-svc whether or not
-    ;; the port is reachable, so leaving it closed degrades every visitor to TCP
-    ;; without erroring anywhere.
-    (is (str/includes? json "\"protocol\" : \"udp\""))
-    (is (str/includes? json "\"subnet_size\" : 0"))
-    (is (str/includes? json "\"subnet\" : \"::\""))
-    ;; Four services across two address families, and nothing else open.
-    (is (= 8 (count (re-seq #"\"firewall_group_id\"" json))))
-    (is (= #{"\"22\"" "\"80\"" "\"443\""} (set (map second (re-seq #"\"port\" : (\"\d+\")" json)))))))
 
 (deftest dns-is-apex-and-proxied
   (let [json (tools/dns-json (tools/dns-data (assoc (fixture) :ip "192.0.2.10")))]
@@ -129,15 +38,15 @@
   (with-redefs [ansible/ansible-with-spec
                 (fn [& _] (throw (ex-info "playbook must not run" {})))]
     (let [r (tools/ansible-step (fixture :green/event :delete))]
-      (is (= 0 (:green/exit r)))
-      (is (= :skipped-no-compute (:rybbit/cleanup r))))))
+      (is (= 1 (:green/exit r)))
+      (is (= "compute node unavailable" (:green/err r))))))
 
 (deftest delete-cleanup-targets-the-adopted-address
   ;; When the start step recovered the instance address from state, the
   ;; cleanup playbook runs against it, never the documentation fallback.
   (with-redefs [ansible/ansible-with-spec
                 (fn [opts _ _] (assoc opts :green/exit 0 ::ran-against (:ip opts)))]
-    (let [r (tools/ansible-step (fixture :green/event :delete :ip "203.0.113.7"))]
+    (let [r (tools/ansible-step (fixture :green/event :delete :ip "203.0.113.7" :user "root" :name "rybbit-fixture"))]
       (is (= "203.0.113.7" (::ran-against r))))))
 
 (deftest ingestion-is-judged-by-the-stored-row-not-the-status
@@ -224,14 +133,6 @@
     (is (str/includes? src "str/split-lines"))
     (is (str/includes? src "re-matches #\"\\d+\""))))
 
-(deftest a-missing-compute-output-fails-loudly
-  ;; The documentation address belongs to build and dry-run. Merging it into a
-  ;; real converge would point Ansible at TEST-NET instead of failing.
-  (is (= "1.2.3.4" (:ip (tools/resolved-compute {} {:ip "192.0.2.10"} {:ip "1.2.3.4"}))))
-  (is (= 1 (:green/exit (tools/resolved-compute {} {:ip "192.0.2.10"} nil))))
-  (is (= 1 (:green/exit (tools/resolved-compute {} {:ip "192.0.2.10"} {}))))
-  (is (nil? (:green/exit (tools/resolved-compute {} {:ip "192.0.2.10"} {:ip "5.6.7.8"})))))
-
 (deftest signup-policy-is-reapplied-on-every-converge
   ;; stack.env is written once to keep its generated secrets, which also froze
   ;; the signup policy: changing the key afterwards silently did nothing.
@@ -282,3 +183,8 @@
   (is (str/includes? @caddyfile "trusted_proxies static"))
   (is (str/includes? @caddyfile "162.158.0.0/15"))
   (is (str/includes? @caddyfile "2400:cb00::/32")))
+
+(deftest neutral-http3-policy-and-observed-hostname
+ (is (= [["tcp" 22] ["tcp" 80] ["tcp" 443] ["udp" 443]] (mapv (juxt :protocol :from_port) (get-in (compute/requirements (fixture)) [:security :ingress]))))
+ (is (= 1 (count (get-in (compute/requirements (fixture :rybbit-http-sources [])) [:security :ingress]))))
+ (is (= "observed-node" (:compute-name (tools/ansible-data (fixture :ip "203.0.113.7" :user "ubuntu" :name "observed-node"))))))

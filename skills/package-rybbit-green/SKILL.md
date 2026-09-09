@@ -1,6 +1,6 @@
 ---
 name: package-rybbit-green
-description: Provisions and operates a production-oriented single-node Rybbit analytics service with PostgreSQL, ClickHouse, Redis and Caddy on one DigitalOcean Droplet or one Vultr instance.
+description: Provisions and operates a production-oriented single-node Rybbit analytics service with PostgreSQL, ClickHouse, Redis and Caddy on one VM through the shared colors-compute library.
 license: MIT
 ---
 
@@ -10,38 +10,33 @@ Operate one Rybbit analytics deployment from non-secret `colors.yml`. Read
 [references/configuration.md](references/configuration.md) before changing
 configuration or running a lifecycle operation.
 
-## Providers
+## Compute ownership
 
-`provider-compute` selects the machine: `digitalocean` (one Droplet, the
-region's default VPC discovered at runtime) or `vultr` (one instance, a
-generated per-CIDR firewall group). Each provider reads its own keys and its
-own credential:
+The pinned `colors-compute` library owns provider selection, remote S3/R2
+state, deployment coordination, machine keys, network policy and the single
+node. This package supplies singleton topology and SSH/HTTP ingress, then
+uses the returned address, login user and SSH identity for its application
+steps. New provider support belongs in the library; consumers update its pin.
+The application needs a supported Ubuntu image and sufficient memory for
+Rybbit and its data services. Build first to check adapter capabilities.
 
-| Provider | Credential | Keys |
-|---|---|---|
-| `digitalocean` | `COLORS_PAR_DO_TOKEN` | `digitalocean-region`, `digitalocean-size`, `digitalocean-image`, `digitalocean-ssh-sources`, `digitalocean-http-sources`; optional `digitalocean-name`, `digitalocean-ssh-keys` |
-| `vultr` | `COLORS_PAR_VULTR_API_KEY` | `vultr-region`, `vultr-plan`, `vultr-os-id`, `vultr-ssh-sources`, `vultr-http-sources`; optional `vultr-name`, `vultr-ssh-keys` |
+Use `rybbit-ssh-sources` and `rybbit-http-sources` for neutral CIDR
+allowlists. Existing selected-provider source options remain compatible.
+External account key references require `ssh-private-key-path`; external
+private keys are never generated or removed. The local SSH block writes
+`IdentityFile` only for a managed deployment key.
 
-- `<provider>-name` is optional and defaults to the profile.
-- `<provider>-ssh-keys` is optional. Leave it out and the package generates
-  and owns the machine keypair at `~/.ssh/<profile>` on the first real create
-  (keygen mode, the default); set it to an existing account key id to use that
-  key instead.
-- A real create also writes a managed `Host <profile>` block into
-  `~/.ssh/config`, between `# BEGIN <profile> ANSIBLE MANAGED BLOCK` and
-  `# END …` markers, so `ssh <profile>` reaches the machine; `delete` removes
-  it before the machine is destroyed. The alias is the profile — there is no
-  separate key for it. A `Host <profile>` stanza that already exists outside
-  those markers, or an option standing above the first `Host` line of the
-  file, refuses the create with the file and line named; the package never
-  overwrites either. Remove or rename the stanza, move the global options
-  below the block or into a `Host *` stanza at the end, or change `profile`.
-- `<provider>-ssh-sources` must list at least one CIDR; every entry of both
-  source keys must be a valid IPv4 or IPv6 CIDR. An empty
-  `<provider>-http-sources` means no public HTTP.
-- Switching providers is a rebuild, never an apply: `delete` on the recorded
-  provider first, then `create` on the new one. A changed `provider-compute`
-  on a profile that holds a machine is refused.
+Existing `<profile>/rybbit-infrastructure.tfstate` is refused before
+compute mutation. Do not remove it to bypass this check: migrate ownership
+explicitly or destroy the old deployment through its original version first.
+Unreadable state and provider mismatches fail closed.
+
+The default compute provider remains `vultr`. An explicit `COLORS_PAR_IP`
+changes only the delete-cleanup target after a successful owned-state read;
+it cannot bypass unreadable state or provider identity checks.
+
+Rybbit requests TCP 22 for SSH, TCP 80/443 for HTTP, and UDP 443 for HTTP/3.
+Empty HTTP sources close both HTTP and HTTP/3 ingress.
 
 ## Safety
 

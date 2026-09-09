@@ -14,107 +14,22 @@ def resource(name: str) -> str:
     return (RESOURCES / name).read_text()
 
 
-def render_infrastructure(opts: dict) -> str:
-    """The compute template for `opts`' provider, rendered as `build` would."""
-    return render_template(
-        tools.template(f"infrastructure.{opts.get('provider-compute')}", "main.tf"),
-        tools.infrastructure_data(opts), tools.template_opts)
 
 
-def test_infrastructure_discovers_default_vpc():
-    data = tools.infrastructure_data(fixture())
-    assert tools.cidrs(data, "digitalocean-http-sources") == ["0.0.0.0/0", "::/0"]
 
 
-def test_compute_keys_follow_the_selected_provider():
-    # Firewall sources are named after the provider, so a step reaching them
-    # through a fixed digitalocean- prefix silently renders an empty list on
-    # any other provider -- a firewall with no rules rather than an error.
-    assert tools.cidrs(tools.infrastructure_data(vultr_fixture()),
-                       "vultr-http-sources") == ["0.0.0.0/0", "::/0"]
-    assert "0.0.0.0/0" in tools.infrastructure_data(vultr_fixture())["ssh-sources-hcl"]
-    assert "0.0.0.0/0" in tools.infrastructure_data(fixture())["http-sources-hcl"]
 
 
-def test_hostname_is_provider_neutral():
-    # The playbook used digitalocean-name, which renders empty on Vultr.
-    assert tools.compute_name(fixture()) == "rybbit-fixture"
-    assert tools.compute_name(vultr_fixture()) == "rybbit-vultr-fixture"
-    # Build and dry-run render without a provider name at all.
-    assert tools.compute_name(fixture({"digitalocean-name": None})) == "rybbit-fixture"
-    assert "<{ compute-name }>" in resource("tools/ansible/main.yml")
 
 
-def test_infrastructure_data_carries_the_name_and_the_keypair_mode():
-    # One resolved name and one mode reach every template, so no template
-    # branches on the provider or re-derives either.
-    optout = tools.infrastructure_data(vultr_fixture())
-    assert optout["compute-name"] == "rybbit-vultr-fixture"
-    assert optout["ssh-keygen"] is False
-    generated = tools.infrastructure_data(keygen_vultr())
-    assert generated["compute-name"] == "rybbit-vultr-keygen-fixture"
-    assert generated["ssh-keygen"] is True
-    assert tools.ansible_data(keygen())["ssh-keygen"] is True
-    assert tools.ansible_data(fixture())["ssh-keygen"] is False
 
 
-def test_templates_name_the_machine_from_one_resolved_value():
-    # Every label -- droplet name, instance label, firewall group and names,
-    # and params.name -- interpolates compute-name, never a provider key or
-    # the profile directly, so an override and the fallback land everywhere.
-    for provider in ["vultr", "digitalocean"]:
-        template = resource(f"tools/infrastructure/{provider}/main.tf")
-        assert f"<{{ {provider}-name }}>" not in template
-        assert 'name = "<{ compute-name }>"' in template
-        assert f'provider = "{provider}"' in template
-    rendered = render_infrastructure(vultr_fixture({"vultr-name": "custom-label"}))
-    assert 'label = "custom-label"' in rendered
-    assert 'description = "custom-label"' in rendered
-    assert 'name = "custom-label"' in rendered
 
 
-def test_empty_http_sources_renders_no_public_http():
-    # An empty `<provider>-http-sources` is allowed and means no public HTTP:
-    # Vultr's generated rules simply omit http, https and quic, and the
-    # DigitalOcean rules are a dynamic block over an empty list. SSH stays.
-    json_text = tools.vultr_firewall_json(
-        tools.infrastructure_data(vultr_fixture({"vultr-http-sources": []})))
-    assert len(re.findall(r'"firewall_group_id"', json_text)) == 2
-    assert set(re.findall(r'"port" : ("\d+")', json_text)) == {'"22"'}
-    assert "udp" not in json_text
-    empty = render_infrastructure(fixture({"digitalocean-http-sources": []}))
-    assert "length([]) > 0 ? [" in empty
-    assert "source_addresses = []" in empty
-    assert 'port_range       = "22"' in empty
-    full = render_infrastructure(fixture())
-    assert 'length(["0.0.0.0/0", "::/0"]) > 0 ? [' in full
-    assert '{ protocol = "udp", port_range = "443" }' in full
 
 
-def test_vultr_cidrs_split_into_address_and_prefix():
-    # Vultr takes subnet and subnet_size as separate fields, per address family.
-    assert tools.cidr_parts("0.0.0.0/0") == \
-        {"subnet": "0.0.0.0", "subnet-size": 0, "ip-type": "v4"}
-    assert tools.cidr_parts("::/0") == \
-        {"subnet": "::", "subnet-size": 0, "ip-type": "v6"}
-    assert tools.cidr_parts("203.0.113.4") == \
-        {"subnet": "203.0.113.4", "subnet-size": 32, "ip-type": "v4"}
-    assert tools.cidr_parts("2001:db8::1") == \
-        {"subnet": "2001:db8::1", "subnet-size": 128, "ip-type": "v6"}
 
 
-def test_vultr_firewall_opens_ssh_http_and_http3():
-    json_text = tools.vultr_firewall_json(vultr_fixture())
-    # HTTP/3 rides UDP 443. Caddy advertises it through alt-svc whether or not
-    # the port is reachable, so leaving it closed degrades every visitor to TCP
-    # without erroring anywhere.
-    assert '"protocol" : "udp"' in json_text
-    assert '"subnet_size" : 0' in json_text
-    assert '"subnet" : "::"' in json_text
-    # Four services across two address families, and nothing else open.
-    assert len(re.findall(r'"firewall_group_id"', json_text)) == 8
-    assert set(re.findall(r'"port" : ("\d+")', json_text)) == \
-        {'"22"', '"80"', '"443"'}
 
 
 def test_dns_is_apex_and_proxied():
@@ -149,8 +64,8 @@ async def test_delete_cleanup_skips_when_state_has_no_compute(monkeypatch):
         raise AssertionError("playbook must not run")
     monkeypatch.setattr(tools, "ansible_with_spec", boom)
     result = await tools.ansible_step({**fixture(), "blue/event": "delete"})
-    assert result["blue/exit"] == 0
-    assert result["rybbit/cleanup"] == "skipped-no-compute"
+    assert result["blue/exit"] == 1
+    assert result["blue/err"] == "compute node unavailable"
 
 
 async def test_delete_cleanup_targets_the_adopted_address(monkeypatch):
@@ -160,7 +75,7 @@ async def test_delete_cleanup_targets_the_adopted_address(monkeypatch):
         return {**opts, "blue/exit": 0, "ran-against": opts.get("ip")}
     monkeypatch.setattr(tools, "ansible_with_spec", fake)
     result = await tools.ansible_step(
-        {**fixture(), "blue/event": "delete", "ip": "203.0.113.7"})
+        {**fixture(), "blue/event": "delete", "ip": "203.0.113.7", "user":"root", "name":"rybbit-fixture"})
     assert result["ran-against"] == "203.0.113.7"
 
 
@@ -249,15 +164,6 @@ def test_site_id_is_taken_from_the_last_line():
     assert 're.fullmatch(r"\\d+", last)' in SOURCE
 
 
-def test_a_missing_compute_output_fails_loudly():
-    # The documentation address belongs to build and dry-run. Merging it into a
-    # real converge would point Ansible at TEST-NET instead of failing.
-    assert tools.resolved_compute({}, {"ip": "192.0.2.10"}, {"ip": "1.2.3.4"})["ip"] \
-        == "1.2.3.4"
-    assert tools.resolved_compute({}, {"ip": "192.0.2.10"}, None)["blue/exit"] == 1
-    assert tools.resolved_compute({}, {"ip": "192.0.2.10"}, {})["blue/exit"] == 1
-    assert tools.resolved_compute(
-        {}, {"ip": "192.0.2.10"}, {"ip": "5.6.7.8"}).get("blue/exit") is None
 
 
 def test_signup_policy_is_reapplied_on_every_converge():
@@ -306,3 +212,21 @@ def test_access_log_records_the_visitor_not_the_proxy():
     assert "trusted_proxies static" in caddyfile
     assert "162.158.0.0/15" in caddyfile
     assert "2400:cb00::/32" in caddyfile
+
+def test_http3_policy_and_observed_hostname():
+    from package_rybbit_blue import compute
+    rules=compute.requirements(fixture())['security']['ingress']
+    assert [(r['protocol'],r['from_port']) for r in rules] == [('tcp',22),('tcp',80),('tcp',443),('udp',443)]
+    assert len(compute.requirements(fixture({'rybbit-http-sources':[]}))['security']['ingress'])==1
+    assert tools.ansible_data({**fixture(),'ip':'203.0.113.1','user':'ubuntu','name':'observed-node'})['compute-name']=='observed-node'
+
+async def test_acceptance_uses_observed_login_and_privilege_escalation(monkeypatch):
+    from types import SimpleNamespace
+    seen = {}
+    async def record(cmd, **kwargs):
+        seen['cmd'] = cmd
+        return SimpleNamespace(exit=0, out='ok\n', err='')
+    monkeypatch.setattr(tools.runtime, 'exec', record)
+    assert await tools.ssh_out({'user':'ubuntu','ssh-private-key-path':'/tmp/key'}, '203.0.113.7', "docker ps --format '{{.Names}}'", 1000) == 'ok'
+    assert seen['cmd'][-2] == 'ubuntu@203.0.113.7'
+    assert seen['cmd'][-1].startswith('sudo -n -- sh -c ')

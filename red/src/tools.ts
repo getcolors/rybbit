@@ -8,7 +8,7 @@ import * as tofu from "red/tofu";
 import { runtime } from "red/runtime";
 import type { Opts } from "red/workflow";
 import { failed } from "red/workflow";
-import { compute } from "package-once-red";
+import * as compute from "./compute.ts";
 import * as ssh from "./ssh.ts";
 import * as sshConfig from "./ssh-config.ts";
 import * as validate from "./validate.ts";
@@ -23,8 +23,6 @@ import ansibleCleanup from "../resources/tools/ansible/cleanup.yml" with { type:
 import ansibleCompose from "../resources/tools/ansible/compose.yml" with { type: "text" };
 import ansibleMain from "../resources/tools/ansible/main.yml" with { type: "text" };
 import dnsMainTf from "../resources/tools/dns/main.tf" with { type: "text" };
-import infrastructureDigitaloceanTf from "../resources/tools/infrastructure/digitalocean/main.tf" with { type: "text" };
-import infrastructureVultrTf from "../resources/tools/infrastructure/vultr/main.tf" with { type: "text" };
 
 export const infrastructureTool = "rybbit-infrastructure";
 export const dnsTool = "rybbit-dns";
@@ -49,8 +47,6 @@ const templates: Record<string, string> = {
   "ansible/compose.yml": ansibleCompose,
   "ansible/main.yml": ansibleMain,
   "dns/main.tf": dnsMainTf,
-  "infrastructure/digitalocean/main.tf": infrastructureDigitaloceanTf,
-  "infrastructure/vultr/main.tf": infrastructureVultrTf,
 };
 
 export function template(path: string, file: string): Template {
@@ -68,7 +64,7 @@ const rawSpec = (target: string, content: string): Spec => contentSpec(target, c
 
 // The source lists as validate parses them, so the template and the
 // validator can never disagree about what an entry is. ONCE's.
-export const cidrs = validate.cidrs;
+
 
 export function credentialEnv(opts: Opts, ...slots: string[]): Record<string, string> | undefined {
   const mapping: Record<string, string> = Object.assign(
@@ -88,93 +84,8 @@ export const backendCredentialEnv = (opts: Opts) => credentialEnv(opts);
 // What `build` and `--dry-run` render in place of a compute output: the
 // documentation address, shaped like the selected provider's real `params` so
 // every later stage sees the same keys either way. ONCE's.
-export const fallbackParams = compute.fallbackParams;
-
-// Refuse to hand 192.0.2.10 to Ansible on a real converge whose compute output
-// carries no `ip`. ONCE's; `infrastructureStep` is what wires it.
-export const resolvedCompute = compute.resolvedCompute;
-
-// `<provider>-<suffix>`, the selected provider's key. ONCE's, via validate.
-export const computeKey = validate.computeKey;
-
-// The machine's name: `<provider>-name` when present, else the profile. ONCE's,
-// via validate; the templates and the playbook derive every label from it.
-export const computeName = validate.computeName;
-
-// Template values for the compute stage. The name, the keypair mode and the
-// source lists are resolved here once, so a template interpolates values and
-// never branches on which provider it belongs to.
-export function infrastructureData(opts: Opts): Opts {
-  return {
-    ...opts,
-    "ssh-keygen": validate.keygen(opts),
-    "compute-name": computeName(opts),
-    "ssh-sources-hcl": tofu.hclList(cidrs(opts, computeKey(opts, "ssh-sources"))),
-    "http-sources-hcl": tofu.hclList(cidrs(opts, computeKey(opts, "http-sources"))),
-  };
-}
-
-// Vultr takes an address and a prefix length as separate fields, per address
-// family, rather than a CIDR string. `0.0.0.0/0` is subnet 0.0.0.0 size 0.
-export function cidrParts(cidr: unknown): { subnet: string; "subnet-size": number; "ip-type": string } {
-  const s = String(cidr ?? "").trim();
-  const [addr = "", size] = s.split("/");
-  const v6 = addr.includes(":");
-  return {
-    subnet: addr,
-    "subnet-size": Number.parseInt(size ?? (v6 ? "128" : "32"), 10),
-    "ip-type": v6 ? "v6" : "v4",
-  };
-}
-
-// One rule per protocol, address family and port. UDP 443 carries HTTP/3, which
-// Caddy advertises through alt-svc whether or not the port is reachable, so
-// omitting it degrades every visitor to TCP silently rather than erroring. An
-// empty `vultr-http-sources` lists nothing to open, so no http, https or quic
-// rule is emitted: no public HTTP, and the same rule names otherwise.
-export function vultrFirewallJson(opts: Opts): string {
-  const group = "${vultr_firewall_group.rybbit.id}";
-  const entries: Array<[string, string, string, string]> = [
-    ...cidrs(opts, "vultr-ssh-sources").map((c): [string, string, string, string] => ["ssh", "tcp", "22", c]),
-    ...cidrs(opts, "vultr-http-sources").map((c): [string, string, string, string] => ["http", "tcp", "80", c]),
-    ...cidrs(opts, "vultr-http-sources").map((c): [string, string, string, string] => ["https", "tcp", "443", c]),
-    ...cidrs(opts, "vultr-http-sources").map((c): [string, string, string, string] => ["quic", "udp", "443", c]),
-  ];
-  return tofu.constructsJson(entries.map(([tag, proto, port, cidr], i) => {
-    const parts = cidrParts(cidr);
-    return tofu.construct("resource", "vultr_firewall_rule",
-      `${tag}_${parts["ip-type"]}_${i}`,
-      {
-        firewall_group_id: group, protocol: proto, ip_type: parts["ip-type"],
-        subnet: parts.subnet, subnet_size: parts["subnet-size"], port,
-        notes: `${tag} ${parts["ip-type"]}`,
-      });
-  }));
-}
-
-// Providers are selected by template directory, not by conditionals inside one
-// file. Vultr additionally needs its firewall rules generated, because their
-// number depends on how many source CIDRs desired state lists.
-export function infrastructureSpecs(opts: Opts): Spec[] {
-  const dir = toolDir(opts, infrastructureTool);
-  const data = infrastructureData(opts);
-  const specs = [spec(template(`infrastructure.${opts["provider-compute"]}`, "main.tf"),
-                      `${dir}/main.tf`, data)];
-  if (opts["provider-compute"] === "vultr") {
-    specs.push(rawSpec(`${dir}/firewall.tf.json`, vultrFirewallJson(data)));
-  }
-  return specs;
-}
-
-export async function infrastructureStep(opts: Opts): Promise<Opts> {
-  const dir = toolDir(opts, infrastructureTool);
-  const result = await tofu.tofuWithSpec(opts, infrastructureSpecs(opts),
-    { dir, env: credentialEnv(opts, "provider-compute") });
-  if (failed(result)) return result;
-  if (opts["red/event"] === "build") return { ...result, ...fallbackParams(opts) };
-  if (opts["red/event"] === "delete") return result;
-  return resolvedCompute(result, fallbackParams(opts), compute.outputParams(result));
-}
+export function fallbackParams(opts:Opts){if(["create","delete"].includes(opts["red/event"])&&!opts["red/dry-run"])throw Error("compute node unavailable");return compute.node(compute.planned(opts));}
+export const infrastructureStep=compute.infrastructureStep;
 
 export function dnsData(opts: Opts): Opts {
   const host = String(opts["rybbit-host"]);
@@ -246,7 +157,7 @@ function pretty(value: unknown, indent = 0): string {
 export function ansibleLocalData(opts: Opts): Opts {
   return {
     ...opts,
-    "ssh-keygen": validate.keygen(opts),
+    "ssh-keygen": validate.keygen(opts), "ssh-identity-present":Boolean(opts["ssh-private-key-path"]),
     "ssh-config-identity-file": sshConfig.identityFile(opts),
   };
 }
@@ -288,8 +199,8 @@ export function inventory(opts: Opts): string {
         rybbit: {
           hosts: {
             [String(opts.profile)]: {
-              ansible_host: opts.ip ?? "192.0.2.10",
-              ansible_user: "root",
+              ansible_host: opts.ip ?? fallbackParams(opts).ip,
+              ansible_user: opts.user ?? fallbackParams(opts).user,
             },
           },
         },
@@ -304,9 +215,9 @@ export function inventory(opts: Opts): string {
 export function ansibleData(opts: Opts): Opts {
   return {
     ...opts,
-    ip: opts.ip ?? "192.0.2.10",
-    "ssh-keygen": validate.keygen(opts),
-    "compute-name": computeName(opts),
+    ip: opts.ip ?? fallbackParams(opts).ip,
+    "ssh-keygen": validate.keygen(opts), "ssh-identity-present":Boolean(opts["ssh-private-key-path"]),
+    "compute-name": opts.name ?? fallbackParams(opts).name,
     "rybbit-backup-access-key": "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
     "rybbit-backup-secret-key": "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}",
   };
@@ -333,15 +244,7 @@ export async function ansibleStep(
   runner: typeof ansible.ansibleWithSpec = ansible.ansibleWithSpec,
 ): Promise<Opts> {
   const dir = toolDir(opts, ansibleTool);
-  if (opts["red/event"] === "delete" && !opts.ip) {
-    // No compute in state: there is no host to clean up, and the rendered
-    // inventory would fall back to 192.0.2.10. Remove the rendered tree the
-    // way a completed cleanup would and let the teardown continue.
-    return {
-      ...scaffold(opts, ansibleSpecs(opts)),
-      "red/exit": 0, "rybbit/cleanup": "skipped-no-compute",
-    };
-  }
+  if (["create","delete"].includes(opts["red/event"]) && !opts["red/dry-run"] && !opts.ip) return {...opts,"red/exit":1,"red/err":"compute node unavailable"};
   return runner(opts, {
     dir,
     inventory: "inventory.json",
@@ -370,7 +273,7 @@ export async function httpStatus(args: string[]): Promise<string | undefined> {
 export async function sshOut(opts: Opts, ip: unknown, command: string, timeout: number): Promise<string | undefined> {
   const r = await runtime.exec(
     ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
-     ...ssh.identityArgs(opts), `root@${ip}`, command],
+     ...ssh.identityArgs(opts), `${opts.user??"root"}@${ip}`, (opts.user??"root")==="root"?command:"sudo -n -- sh -c "+"'"+command.replaceAll("'", "'\"'\"'")+"'"],
     { timeoutMs: timeout });
   return r.exit === 0 ? String(r.out ?? "").trim() : undefined;
 }
