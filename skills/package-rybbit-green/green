@@ -50,7 +50,7 @@
 ;; cannot resolve its own library says so rather than inventing a SHA or
 ;; silently falling back to whatever is lying around. `bb pin` refuses to stamp
 ;; a dirty or unpushed HEAD for the same reason.
-(def ^:private rybbit-sha "26e6f83cc28d74a6aff9d93a3b8001cc894a1883")
+(def ^:private rybbit-sha "c348dec8dec55b29a1d5372add74d5d2c054c5cf")
 
 (def ^:private rybbit-git-url "https://github.com/getcolors/rybbit.git")
 (def ^:private green-git-url "https://github.com/getcolors/green.git")
