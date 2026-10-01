@@ -36,7 +36,7 @@ import { homedir } from "node:os";
 // directory, which would halt Bun's upward resolution of `package-rybbit-red`
 // and break the development symlink at red/red.
 const PINS = {
-  "package-rybbit-red": "github:getcolors/rybbit#c348dec8dec55b29a1d5372add74d5d2c054c5cf",
+  "package-rybbit-red": "github:getcolors/rybbit#8f251ddfa7f3e39b49bf0b463eb2a47f2ea26ecd",
   "package-once-red": "github:getcolors/once#a41c43d244cb57da25b2a0c71f19b4e42a101bea",
   // The Red SDK is a peer of colors-compute-red, not a dependency: a cold
   // cache installs nothing for a peer, so the consumer pins it explicitly, at
