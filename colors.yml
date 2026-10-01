@@ -22,7 +22,7 @@ google-subnet-cidr: 10.20.1.0/24
 google-boot-disk-size-gb: 100
 
 rybbit-host: rybbit.bigconfig.online
-rybbit-disable-signup: false
+rybbit-disable-signup: true
 postgres-image: postgres:17-alpine
 clickhouse-image: clickhouse/clickhouse-server:24.8-alpine
 redis-image: redis:8.6.4-alpine
