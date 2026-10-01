@@ -6,7 +6,7 @@
         "endpoints": {
           "s3": "https://319271fed8bc6d2d9059362be1165f37.eu.r2.cloudflarestorage.com"
         },
-        "key": "rybbit-vultr-fixture/compute/shared.tfstate",
+        "key": "rybbit-keygen-fixture/rybbit-ssh-registration.tfstate",
         "region": "auto",
         "skip_credentials_validation": true,
         "skip_metadata_api_check": true,

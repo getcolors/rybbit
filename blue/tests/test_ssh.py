@@ -1,15 +1,13 @@
-from conftest import keygen as fixture, fixture as optout
-from package_rybbit_blue import ssh
+from conftest import keygen as fixture
+from package_rybbit_blue import ssh, access
 
-def test_managed_build_identity_is_deterministic():
-    opts = ssh.with_machine_key({**fixture(), 'blue/event': 'build'})
-    assert opts['ssh-private-key-path'] == '/home/build-placeholder/.ssh/rybbit-keygen-fixture'
-    assert ssh.identity_args(opts) == ['-i', opts['ssh-private-key-path'], '-o', 'IdentitiesOnly=yes']
-
-def test_external_identity_is_preserved():
-    opts = {**optout(), 'blue/event': 'build'}
-    assert ssh.with_machine_key(opts) == opts
-    assert ssh.identity_args(opts)[1] == opts['ssh-private-key-path']
+async def test_build_identity_is_public_and_deterministic():
+    opts = await access.agent_step({**fixture(), 'blue/event': 'build'})
+    assert opts['ssh-private-key-path'] == '/home/build-placeholder/compute/rybbit-keygen-fixture/ssh/machine-access/identity.pub'
+    args = ssh.identity_args(opts)
+    assert 'IdentityFile=none' in args and 'IdentitiesOnly=yes' in args
+    assert 'IdentityAgent=/home/build-placeholder/agent.sock' in args
+    assert 'ForwardAgent=no' in args and 'ControlMaster=no' in args
 
 def test_live_identity_is_never_generated_by_the_application():
     opts = fixture()

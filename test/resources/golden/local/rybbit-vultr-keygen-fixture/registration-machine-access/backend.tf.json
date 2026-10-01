@@ -1,0 +1,12 @@
+{
+  "terraform": {
+    "backend": {
+      "s3": {
+        "bucket": "rybbit-test-state",
+        "key": "rybbit-vultr-keygen-fixture/rybbit-ssh-registration.tfstate",
+        "region": "eu-west-1",
+        "use_lockfile": true
+      }
+    }
+  }
+}

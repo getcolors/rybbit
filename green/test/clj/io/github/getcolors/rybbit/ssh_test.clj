@@ -1,11 +1,15 @@
 (ns io.github.getcolors.rybbit.ssh-test
  (:require [clojure.test :refer [deftest is]]
- [io.github.getcolors.rybbit.ssh :as ssh]
- [io.github.getcolors.rybbit.validate-test :refer [keygen fixture]]))
-(deftest build-managed-identity
- (is (= "/home/build-placeholder/.ssh/rybbit-keygen-fixture" (:ssh-private-key-path (ssh/with-machine-key (keygen :green/event :build))))))
-(deftest external-identity-preserved
- (is (= (fixture) (ssh/with-machine-key (fixture))))
- (is (= "/home/build-placeholder/.ssh/operator-key" (second (ssh/identity-args (fixture))))))
-(deftest no-application-key-generation
- (is (= (keygen) (ssh/with-machine-key (keygen)))))
+           [io.github.getcolors.rybbit.access :as access]
+           [io.github.getcolors.rybbit.compute :as compute]))
+(deftest scope-isolates-identities
+ (let [args (access/ssh-args {:ip "203.0.113.7" :user "ubuntu"
+                              :ssh-private-key-path "/cache/identity.pub" :rybbit/agent-socket "/agent/socket"})]
+  (doseq [arg ["IdentityFile=none" "IdentitiesOnly=yes" "IdentityAgent=/agent/socket" "ForwardAgent=no" "ControlMaster=no" "ControlPersist=no"]]
+   (is (some #{arg} args)))
+  (is (= ["--" "203.0.113.7"] (vec (take-last 2 args))))))
+(deftest incomplete-identity-refused
+ (is (thrown? Exception (access/ssh-args {:ip "203.0.113.7" :user "ubuntu"}))))
+(deftest build-identity-is-public
+ (is (= "/home/build-placeholder/compute/demo/ssh/machine-access/identity.pub"
+        (:ssh-private-key-path (access/agent-step {:green/event :build :profile "demo"})))))

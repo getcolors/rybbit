@@ -30,9 +30,7 @@
          (apply merge (map #(validate/tofu-env opts %) (conj (vec slots) :provider-backend))))))
 (defn backend-credential-env [opts] (credential-env opts))
 
-(defn fallback-params [opts]
- (when (and (#{:create :delete} (:green/event opts)) (not (:green/dry-run opts))) (throw (ex-info "compute node unavailable" {})))
- (compute/node (compute/planned opts)))
+(def fallback-params compute/fallback-params)
 (def infrastructure-step compute/infrastructure-step)
 
 (defn zone-id [zone] (format "${data.cloudflare_zone.zone.id}" zone))
@@ -44,7 +42,7 @@
                      (str/join "." (rest parts))
                      host)))]
     (assoc opts
-           :ip (or (:ip opts) (:ip (fallback-params opts)))
+           :ip (or (:ip opts) (when (:colors-compute/already-destroyed opts) "192.0.2.10") (:ip (fallback-params opts)))
            :cloudflare-zone zone
            ;; Proxied by default: an unproxied record publishes the droplet's
            ;; address, leaving the firewall as the only thing in front of the
@@ -99,8 +97,10 @@
       {:dir dir :inventory "inventory.ini"
        :playbooks {:create "main.yml" :delete "main.yml"}
        :extra-vars {:host_alias (ssh-config/host-alias opts)
-                    :ip (or (:ip opts) (:ip (fallback-params opts)))
-                    :user (or (:user opts) "root")
+                    :ssh_hosts [{:name (ssh-config/host-alias opts)
+                                 :ip (or (:ip opts) (if delete? "192.0.2.10" (:ip (fallback-params opts))))
+                                 :user (or (:user opts) "ubuntu")
+                                 :identity_file (:ssh-private-key-path opts)}]
                     :block_state (if delete? "absent" "present")}}
       (ansible-local-specs opts))))
 
@@ -110,12 +110,12 @@
   (json/generate-string
    {:all {:children {:rybbit {:hosts {(:profile opts)
                                       {:ansible_host (or (:ip opts) (:ip (fallback-params opts)))
-                                       :ansible_user (or (:user opts) (:user (fallback-params opts)))}}}}}}
+                                       :ansible_user (or (:user opts) (:user (fallback-params opts)))
+                                       :ansible_ssh_private_key_file (:ssh-private-key-path opts)
+                                       :ansible_ssh_common_args (str "-F /dev/null -o IdentityFile=none -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o IdentityAgent=" (or (:rybbit/agent-socket opts) "none") " -o ForwardAgent=no -o ControlMaster=no -o ControlPersist=no -S none")}}}}}}
    {:pretty true}))
 (defn ansible-data
-  "Template values for the Ansible stage. `ssh-private-key-path` reaches
-  ansible.cfg so convergence uses the deployment's own key in keygen mode,
-  where nothing guarantees an agent holds it."
+  "Application template values; scoped SSH credentials are attached to inventory."
   [opts]
   (assoc opts
          :ip (or (:ip opts) (:ip (fallback-params opts)))
@@ -132,15 +132,19 @@
      (spec (template "ansible" "Caddyfile") (str dir "/Caddyfile") data)
      (spec (template "ansible" "backup") (str dir "/backup") data)
      (raw-spec (str dir "/inventory.json") (inventory data))]))
-(defn ansible-step [opts]
+(defn run-ansible-step [opts]
   (let [dir (tool-dir opts ansible-tool)]
     (if (and (#{:create :delete} (:green/event opts)) (not (:green/dry-run opts)) (not (:ip opts)))
       (assoc opts :green/exit 1 :green/err "compute node unavailable")
       (ansible/ansible-with-spec opts
         {:dir dir :inventory "inventory.json"
          :playbooks {:create "main.yml" :delete "cleanup.yml"}
-         :host-key-checking false}
+         :host-key-checking true}
         (ansible-specs opts)))))
+
+(defn ansible-step [opts]
+  (if (and (= :delete (:green/event opts)) (:colors-compute/already-destroyed opts))
+    (assoc opts :green/exit 0) (run-ansible-step opts)))
 
 ;; --- Acceptance --------------------------------------------------------------
 ;;
@@ -155,12 +159,10 @@
     (when (zero? (:exit r)) (str/trim (:out r)))))
 
 (defn ssh-out
-  "Run `command` on the host over ssh. The deployment's own key is selected in
-  keygen mode (`ssh/identity-args`), because nothing guarantees an agent holds
-  it; opt-out mode adds nothing and relies on the operator's identities."
+  "Run a command with the scoped public identity and temporary agent."
   [opts ip command timeout]
   (let [r (process/run-with-timeout
-           (-> ["ssh" "-o" "StrictHostKeyChecking=no" "-o" "ConnectTimeout=10"]
+           (-> ["ssh" "-o" "StrictHostKeyChecking=accept-new" "-o" "ConnectTimeout=10"]
                (into (ssh/identity-args opts))
                (conj (str (or (:user opts) "root") "@" ip) (if (= "root" (or (:user opts) "root")) command (str "sudo -n -- sh -c '" (str/replace command "'" "'\"'\"'") "'"))))
            {} timeout)]

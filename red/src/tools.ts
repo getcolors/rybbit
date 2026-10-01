@@ -3,7 +3,13 @@
 
 import * as ansible from "red/ansible";
 import { stageDir } from "red/cli";
-import { PRESERVE_JINJA_DELIMITERS, contentSpec, scaffold, type Spec, type Template } from "red/scaffold";
+import {
+  PRESERVE_JINJA_DELIMITERS,
+  contentSpec,
+  scaffold,
+  type Spec,
+  type Template,
+} from "red/scaffold";
 import * as tofu from "red/tofu";
 import { runtime } from "red/runtime";
 import type { Opts } from "red/workflow";
@@ -60,16 +66,21 @@ function spec(source: Template, target: string, data: Opts): Spec {
   return { template: source, target, data, opts: templateOpts };
 }
 
-const rawSpec = (target: string, content: string): Spec => contentSpec(target, content);
+const rawSpec = (target: string, content: string): Spec =>
+  contentSpec(target, content);
 
 // The source lists as validate parses them, so the template and the
 // validator can never disagree about what an entry is. ONCE's.
 
-
-export function credentialEnv(opts: Opts, ...slots: string[]): Record<string, string> | undefined {
+export function credentialEnv(
+  opts: Opts,
+  ...slots: string[]
+): Record<string, string> | undefined {
   const mapping: Record<string, string> = Object.assign(
     {},
-    ...[...slots, "provider-backend"].map((slot) => validate.tofuEnv(opts, slot)),
+    ...[...slots, "provider-backend"].map((slot) =>
+      validate.tofuEnv(opts, slot),
+    ),
   );
   const env: Record<string, string> = {};
   for (const [key, envVar] of Object.entries(mapping)) {
@@ -84,13 +95,14 @@ export const backendCredentialEnv = (opts: Opts) => credentialEnv(opts);
 // What `build` and `--dry-run` render in place of a compute output: the
 // documentation address, shaped like the selected provider's real `params` so
 // every later stage sees the same keys either way. ONCE's.
-export function fallbackParams(opts:Opts){if(["create","delete"].includes(opts["red/event"])&&!opts["red/dry-run"])throw Error("compute node unavailable");return compute.node(compute.planned(opts));}
-export const infrastructureStep=compute.infrastructureStep;
+export const fallbackParams = compute.fallbackParams;
+export const infrastructureStep = compute.infrastructureStep;
 
 export function dnsData(opts: Opts): Opts {
   const host = String(opts["rybbit-host"]);
   const parts = host.split(".");
-  const zone = opts["cloudflare-zone"] ??
+  const zone =
+    opts["cloudflare-zone"] ??
     (parts.length > 2 ? parts.slice(1).join(".") : host);
   return {
     ...opts,
@@ -103,10 +115,11 @@ export function dnsData(opts: Opts): Opts {
     // attribution are unaffected. Set the key to false to opt out --
     // note that doing so is also what keeps ssh to the host name
     // working, which a converge never needs but an operator may.
-    "cloudflare-proxied": opts["cloudflare-proxied"] !== null &&
+    "cloudflare-proxied":
+      opts["cloudflare-proxied"] !== null &&
       opts["cloudflare-proxied"] !== undefined
-      ? opts["cloudflare-proxied"]
-      : true,
+        ? opts["cloudflare-proxied"]
+        : true,
   };
 }
 
@@ -114,20 +127,30 @@ export function dnsJson(opts: Opts): string {
   return tofu.constructsJson([
     tofu.construct("resource", "cloudflare_dns_record", "rybbit", {
       zone_id: "${data.cloudflare_zone.zone.id}",
-      name: opts["rybbit-host"], content: opts.ip, type: "A",
-      proxied: Boolean(opts["cloudflare-proxied"]), ttl: 1,
+      name: opts["rybbit-host"],
+      content: opts.ip,
+      type: "A",
+      proxied: Boolean(opts["cloudflare-proxied"]),
+      ttl: 1,
     }),
   ]);
 }
 
 export async function dnsStep(opts: Opts): Promise<Opts> {
   const dir = toolDir(opts, dnsTool);
-  const data = dnsData(opts);
+  const data = dnsData(
+    opts["red/event"] === "delete" && !opts.ip
+      ? { ...opts, ip: "192.0.2.10" }
+      : opts,
+  );
   const specs = [
     spec(template("dns", "main.tf"), `${dir}/main.tf`, data),
     rawSpec(`${dir}/record.tf.json`, dnsJson(data)),
   ];
-  return tofu.tofuWithSpec(opts, specs, { dir, env: credentialEnv(opts, "provider-dns") });
+  return tofu.tofuWithSpec(opts, specs, {
+    dir,
+    env: credentialEnv(opts, "provider-dns"),
+  });
 }
 
 // Cheshire's pretty printer, byte for byte: spaces around colons, arrays
@@ -142,7 +165,10 @@ function pretty(value: unknown, indent = 0): string {
     if (entries.length === 0) return "{ }";
     const pad = " ".repeat(indent + 2);
     return `{\n${entries
-      .map(([key, nested]) => `${pad}${JSON.stringify(key)} : ${pretty(nested, indent + 2)}`)
+      .map(
+        ([key, nested]) =>
+          `${pad}${JSON.stringify(key)} : ${pretty(nested, indent + 2)}`,
+      )
       .join(",\n")}\n${" ".repeat(indent)}}`;
   }
   return JSON.stringify(value ?? null);
@@ -157,8 +183,10 @@ function pretty(value: unknown, indent = 0): string {
 export function ansibleLocalData(opts: Opts): Opts {
   return {
     ...opts,
-    "ssh-keygen": validate.keygen(opts), "ssh-identity-present":Boolean(opts["ssh-private-key-path"]),
-    "ssh-config-identity-file": sshConfig.identityFile(opts),
+    "ssh-keygen": validate.keygen(opts),
+    "ssh-identity-present": Boolean(opts["ssh-private-key-path"]),
+    "ssh-config-identity-file":
+      opts["ssh-private-key-path"] ?? compute.placeholderKey(opts),
   };
 }
 
@@ -167,7 +195,11 @@ export function ansibleLocalSpecs(opts: Opts): Spec[] {
   const data = ansibleLocalData(opts);
   return [
     spec(template("ansible-local", "ansible.cfg"), `${dir}/ansible.cfg`, data),
-    spec(template("ansible-local", "inventory.ini"), `${dir}/inventory.ini`, data),
+    spec(
+      template("ansible-local", "inventory.ini"),
+      `${dir}/inventory.ini`,
+      data,
+    ),
     spec(template("ansible-local", "main.yml"), `${dir}/main.yml`, data),
   ];
 }
@@ -177,17 +209,27 @@ export function ansibleLocalSpecs(opts: Opts): Spec[] {
 export async function ansibleLocalStep(opts: Opts): Promise<Opts> {
   const dir = toolDir(opts, ansibleLocalTool);
   const isDelete = opts["red/event"] === "delete";
-  return ansible.ansibleWithSpec(opts, {
-    dir,
-    inventory: "inventory.ini",
-    playbooks: { create: "main.yml", delete: "main.yml" },
-    extraVars: {
-      host_alias: sshConfig.hostAlias(opts),
-      ip: opts.ip ?? fallbackParams(opts).ip,
-      user: opts.user ?? "root",
-      block_state: isDelete ? "absent" : "present",
+  return ansible.ansibleWithSpec(
+    opts,
+    {
+      dir,
+      inventory: "inventory.ini",
+      playbooks: { create: "main.yml", delete: "main.yml" },
+      extraVars: {
+        host_alias: sshConfig.hostAlias(opts),
+        ssh_hosts: [
+          {
+            name: sshConfig.hostAlias(opts),
+            ip: opts.ip ?? (isDelete ? null : fallbackParams(opts).ip),
+            user: opts.user ?? "ubuntu",
+            identity_file: opts["ssh-private-key-path"],
+          },
+        ],
+        block_state: isDelete ? "absent" : "present",
+      },
     },
-  }, ansibleLocalSpecs(opts));
+    ansibleLocalSpecs(opts),
+  );
 }
 
 // ---------------------------------------------------------------- ansible
@@ -201,6 +243,11 @@ export function inventory(opts: Opts): string {
             [String(opts.profile)]: {
               ansible_host: opts.ip ?? fallbackParams(opts).ip,
               ansible_user: opts.user ?? fallbackParams(opts).user,
+              ansible_ssh_private_key_file: opts["ssh-private-key-path"],
+              ansible_ssh_common_args:
+                "-F /dev/null -o IdentityFile=none -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o IdentityAgent=" +
+                (opts["rybbit/agent-socket"] ?? "none") +
+                " -o ForwardAgent=no -o ControlMaster=no -o ControlPersist=no -S none",
             },
           },
         },
@@ -216,10 +263,13 @@ export function ansibleData(opts: Opts): Opts {
   return {
     ...opts,
     ip: opts.ip ?? fallbackParams(opts).ip,
-    "ssh-keygen": validate.keygen(opts), "ssh-identity-present":Boolean(opts["ssh-private-key-path"]),
+    "ssh-keygen": validate.keygen(opts),
+    "ssh-identity-present": Boolean(opts["ssh-private-key-path"]),
     "compute-name": opts.name ?? fallbackParams(opts).name,
-    "rybbit-backup-access-key": "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
-    "rybbit-backup-secret-key": "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}",
+    "rybbit-backup-access-key":
+      "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
+    "rybbit-backup-secret-key":
+      "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}",
   };
 }
 
@@ -244,13 +294,27 @@ export async function ansibleStep(
   runner: typeof ansible.ansibleWithSpec = ansible.ansibleWithSpec,
 ): Promise<Opts> {
   const dir = toolDir(opts, ansibleTool);
-  if (["create","delete"].includes(opts["red/event"]) && !opts["red/dry-run"] && !opts.ip) return {...opts,"red/exit":1,"red/err":"compute node unavailable"};
-  return runner(opts, {
-    dir,
-    inventory: "inventory.json",
-    playbooks: { create: "main.yml", delete: "cleanup.yml" },
-    hostKeyChecking: false,
-  }, ansibleSpecs(opts));
+  if (
+    opts["red/event"] === "delete" &&
+    opts["colors-compute/already-destroyed"]
+  )
+    return opts;
+  if (
+    ["create", "delete"].includes(opts["red/event"]) &&
+    !opts["red/dry-run"] &&
+    !opts.ip
+  )
+    return { ...opts, "red/exit": 1, "red/err": "compute node unavailable" };
+  return runner(
+    opts,
+    {
+      dir,
+      inventory: "inventory.json",
+      playbooks: { create: "main.yml", delete: "cleanup.yml" },
+      hostKeyChecking: true,
+    },
+    ansibleSpecs(opts),
+  );
 }
 
 // --- Acceptance --------------------------------------------------------------
@@ -263,76 +327,133 @@ export async function ansibleStep(
 export async function httpStatus(args: string[]): Promise<string | undefined> {
   const r = await runtime.exec(
     ["curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", ...args],
-    { timeoutMs: 20000 });
+    { timeoutMs: 20000 },
+  );
   return r.exit === 0 ? String(r.out ?? "").trim() : undefined;
 }
 
 // Run `command` on the host over ssh. The deployment's own key is selected in
 // keygen mode (`ssh.identityArgs`), because nothing guarantees an agent holds
 // it; opt-out mode adds nothing and relies on the operator's identities.
-export async function sshOut(opts: Opts, ip: unknown, command: string, timeout: number): Promise<string | undefined> {
+export async function sshOut(
+  opts: Opts,
+  ip: unknown,
+  command: string,
+  timeout: number,
+): Promise<string | undefined> {
   const r = await runtime.exec(
-    ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
-     ...ssh.identityArgs(opts), `${opts.user??"root"}@${ip}`, (opts.user??"root")==="root"?command:"sudo -n -- sh -c "+"'"+command.replaceAll("'", "'\"'\"'")+"'"],
-    { timeoutMs: timeout });
+    [
+      "ssh",
+      "-o",
+      "StrictHostKeyChecking=accept-new",
+      "-o",
+      "ConnectTimeout=10",
+      ...ssh.identityArgs(opts),
+      `${opts.user ?? "root"}@${ip}`,
+      (opts.user ?? "root") === "root"
+        ? command
+        : "sudo -n -- sh -c " + "'" + command.replaceAll("'", "'\"'\"'") + "'",
+    ],
+    { timeoutMs: timeout },
+  );
   return r.exit === 0 ? String(r.out ?? "").trim() : undefined;
 }
 
-export const stackEnv = "cd /opt/rybbit && set -a && . ./stack.env && set +a && ";
+export const stackEnv =
+  "cd /opt/rybbit && set -a && . ./stack.env && set +a && ";
 
-export async function psql(opts: Opts, ip: unknown, query: string): Promise<string | undefined> {
-  const out = String(await sshOut(opts, ip, stackEnv +
-    'docker compose exec -T postgres psql -U "$POSTGRES_USER"' +
-    ` -d "$POSTGRES_DB" -tAc '${query}'`, 30000) ?? "");
+export async function psql(
+  opts: Opts,
+  ip: unknown,
+  query: string,
+): Promise<string | undefined> {
+  const out = String(
+    (await sshOut(
+      opts,
+      ip,
+      stackEnv +
+        'docker compose exec -T postgres psql -U "$POSTGRES_USER"' +
+        ` -d "$POSTGRES_DB" -tAc '${query}'`,
+      30000,
+    )) ?? "",
+  );
   return out.length > 0 ? out : undefined;
 }
 
 // Resolve the events table from system.tables so the check does not hardcode a
 // database name Rybbit's migrations own, then run `query` against it.
-export async function clickhouse(opts: Opts, ip: unknown, query: string): Promise<string | undefined> {
-  const out = String(await sshOut(opts, ip, stackEnv +
-    "t=$(docker compose exec -T clickhouse clickhouse-client" +
-    ' --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD"' +
-    " --query \"SELECT database || '.' || name FROM system.tables" +
-    " WHERE name = 'events' AND database NOT IN ('system')" +
-    " ORDER BY database LIMIT 1\" | tr -d '\\r'); " +
-    '[ -n "$t" ] && docker compose exec -T clickhouse clickhouse-client' +
-    ' --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD"' +
-    ` --query "${query}"`, 30000) ?? "");
+export async function clickhouse(
+  opts: Opts,
+  ip: unknown,
+  query: string,
+): Promise<string | undefined> {
+  const out = String(
+    (await sshOut(
+      opts,
+      ip,
+      stackEnv +
+        "t=$(docker compose exec -T clickhouse clickhouse-client" +
+        ' --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD"' +
+        " --query \"SELECT database || '.' || name FROM system.tables" +
+        " WHERE name = 'events' AND database NOT IN ('system')" +
+        " ORDER BY database LIMIT 1\" | tr -d '\\r'); " +
+        '[ -n "$t" ] && docker compose exec -T clickhouse clickhouse-client' +
+        ' --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD"' +
+        ` --query "${query}"`,
+      30000,
+    )) ?? "",
+  );
   return out.length > 0 ? out : undefined;
 }
 
-export async function eventCount(opts: Opts, ip: unknown): Promise<number | undefined> {
+export async function eventCount(
+  opts: Opts,
+  ip: unknown,
+): Promise<number | undefined> {
   const out = await clickhouse(opts, ip, "SELECT count() FROM $t");
   if (out === undefined) return undefined;
   const parsed = Number.parseInt(out, 10);
-  return Number.isInteger(parsed) && /^[+-]?\d+$/.test(out.trim()) ? parsed : undefined;
+  return Number.isInteger(parsed) && /^[+-]?\d+$/.test(out.trim())
+    ? parsed
+    : undefined;
 }
 
 // A dedicated throwaway site, created on demand. Sending the synthetic event to
 // whichever site happened to be first wrote a /colors-acceptance pageview into
 // the operator's real analytics on every converge. The site is attached to the
 // existing organization so it stays visible and deletable in the UI.
-export async function acceptanceSiteId(opts: Opts, ip: unknown): Promise<string | undefined> {
+export async function acceptanceSiteId(
+  opts: Opts,
+  ip: unknown,
+): Promise<string | undefined> {
   const configured = String(opts["rybbit-acceptance-site-domain"] ?? "");
-  const domain = configured.length > 0 ? configured : "colors-acceptance.invalid";
+  const domain =
+    configured.length > 0 ? configured : "colors-acceptance.invalid";
   // Dollar-quoted literals: the query travels inside single quotes in a
   // remote shell, where an escaped quote would arrive at psql verbatim.
   // psql prints the INSERT tag before the SELECT result, so take the id off
   // the last line rather than the whole output.
-  const out = await psql(opts, ip,
+  const out = await psql(
+    opts,
+    ip,
     "insert into sites (name, domain, organization_id) " +
-    `select $$colors-acceptance$$, $$${domain}$$, ` +
-    "(select id from organization limit 1) " +
-    `where not exists (select 1 from sites where domain = $$${domain}$$); ` +
-    `select site_id from sites where domain = $$${domain}$$ limit 1`);
+      `select $$colors-acceptance$$, $$${domain}$$, ` +
+      "(select id from organization limit 1) " +
+      `where not exists (select 1 from sites where domain = $$${domain}$$); ` +
+      `select site_id from sites where domain = $$${domain}$$ limit 1`,
+  );
   const last = out?.split("\n").at(-1)?.trim();
   return last !== undefined && /^\d+$/.test(last) ? last : undefined;
 }
 
-export async function waitHealth(url: string, attempts: number): Promise<boolean> {
+export async function waitHealth(
+  url: string,
+  attempts: number,
+): Promise<boolean> {
   for (let n = attempts; ; n -= 1) {
-    const r = await runtime.exec(["curl", "-fsS", `${url}/api/health`], { timeoutMs: 10000 });
+    const r = await runtime.exec(["curl", "-fsS", `${url}/api/health`], {
+      timeoutMs: 10000,
+    });
     if (r.exit === 0) return true;
     if (n <= 0) return false;
     await Bun.sleep(5000);
@@ -342,12 +463,25 @@ export async function waitHealth(url: string, attempts: number): Promise<boolean
 // Rybbit discriminates on `type`, not `name`: the API answers 400 with
 // "Invalid discriminator value" for anything else. This went unnoticed while
 // no site existed, because the step reports "not-configured" and sends nothing.
-export async function sendEvent(base: string, site: string): Promise<string | undefined> {
-  return httpStatus(["-X", "POST", "-H", "content-type: application/json",
-    "-H", "User-Agent: Mozilla/5.0 (Colors acceptance)",
-    "--data", JSON.stringify({ type: "pageview", site_id: site,
-                               pathname: "/colors-acceptance" }),
-    `${base}/api/track`]);
+export async function sendEvent(
+  base: string,
+  site: string,
+): Promise<string | undefined> {
+  return httpStatus([
+    "-X",
+    "POST",
+    "-H",
+    "content-type: application/json",
+    "-H",
+    "User-Agent: Mozilla/5.0 (Colors acceptance)",
+    "--data",
+    JSON.stringify({
+      type: "pageview",
+      site_id: site,
+      pathname: "/colors-acceptance",
+    }),
+    `${base}/api/track`,
+  ]);
 }
 
 export function ingestionVerdict(
@@ -356,7 +490,11 @@ export function ingestionVerdict(
   after: number | undefined,
 ): string {
   if (status === undefined || status === null) return "unreachable";
-  if (Number.isInteger(before) && Number.isInteger(after) && (after as number) > (before as number)) {
+  if (
+    Number.isInteger(before) &&
+    Number.isInteger(after) &&
+    (after as number) > (before as number)
+  ) {
     return "ingested";
   }
   if (/^2\d\d$/.test(String(status))) return "dropped";
@@ -386,15 +524,21 @@ interface BackupEntry {
   ModTime?: string;
 }
 
-export async function backupListing(opts: Opts, ip: unknown): Promise<BackupEntry[] | undefined> {
-  const out = await sshOut(opts, ip,
+export async function backupListing(
+  opts: Opts,
+  ip: unknown,
+): Promise<BackupEntry[] | undefined> {
+  const out = await sshOut(
+    opts,
+    ip,
     `set -a; . /etc/rybbit-backup.env; set +a; ${rcloneEnv}` +
-    ' RCLONE_CONFIG_R2_ACCESS_KEY_ID="$RYBBIT_BACKUP_R2_ACCESS_KEY_ID"' +
-    ' RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY"' +
-    ` RCLONE_CONFIG_R2_ENDPOINT="${opts["rybbit-backup-r2-endpoint"]}"` +
-    ` rclone lsjson --files-only r2:${opts["rybbit-backup-r2-bucket"]}` +
-    `/${opts.profile}`,
-    120000);
+      ' RCLONE_CONFIG_R2_ACCESS_KEY_ID="$RYBBIT_BACKUP_R2_ACCESS_KEY_ID"' +
+      ' RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY"' +
+      ` RCLONE_CONFIG_R2_ENDPOINT="${opts["rybbit-backup-r2-endpoint"]}"` +
+      ` rclone lsjson --files-only r2:${opts["rybbit-backup-r2-bucket"]}` +
+      `/${opts.profile}`,
+    120000,
+  );
   if (out === undefined || out.length === 0) return undefined;
   try {
     return JSON.parse(out) as BackupEntry[];
@@ -412,18 +556,29 @@ export function parseInstant(s: unknown): number | undefined {
   return Number.isFinite(t) ? t : undefined;
 }
 
-export function freshBackup(entries: BackupEntry[] | undefined, since: number): boolean {
-  return Boolean(entries?.some(({ Size, ModTime }) => {
-    if (!((Size ?? 0) > 0)) return false;
-    const t = parseInstant(ModTime);
-    return t !== undefined && t >= since;
-  }));
+export function freshBackup(
+  entries: BackupEntry[] | undefined,
+  since: number,
+): boolean {
+  return Boolean(
+    entries?.some(({ Size, ModTime }) => {
+      if (!((Size ?? 0) > 0)) return false;
+      const t = parseInstant(ModTime);
+      return t !== undefined && t >= since;
+    }),
+  );
 }
 
-export async function runBackup(opts: Opts, ip: unknown): Promise<string | undefined> {
-  return sshOut(opts, ip,
+export async function runBackup(
+  opts: Opts,
+  ip: unknown,
+): Promise<string | undefined> {
+  return sshOut(
+    opts,
+    ip,
     "systemctl start rybbit-backup.service && systemctl is-active rybbit-backup.timer",
-    300000);
+    300000,
+  );
 }
 
 export async function acceptanceStep(opts: Opts): Promise<Opts> {
@@ -432,31 +587,60 @@ export async function acceptanceStep(opts: Opts): Promise<Opts> {
   const ip = opts.ip;
   const since = Date.now() - 120000;
   if (!(await waitHealth(base, 60))) {
-    return { ...opts, "red/exit": 1,
-      "red/err": "HTTPS health did not become ready with a valid certificate" };
+    return {
+      ...opts,
+      "red/exit": 1,
+      "red/err": "HTTPS health did not become ready with a valid certificate",
+    };
   }
   const site = await acceptanceSiteId(opts, ip);
   const before = await eventCount(opts, ip);
   if (!Number.isInteger(before)) {
-    return { ...opts, "red/exit": 1,
-      "red/err": "could not read the ClickHouse events table to verify ingestion" };
+    return {
+      ...opts,
+      "red/exit": 1,
+      "red/err":
+        "could not read the ClickHouse events table to verify ingestion",
+    };
   }
-  const verdict = site === undefined
-    ? "not-configured"
-    : ingestionVerdict(await sendEvent(base, site),
-                       before, await waitIngested(opts, ip, before as number, 10));
+  const verdict =
+    site === undefined
+      ? "not-configured"
+      : ingestionVerdict(
+          await sendEvent(base, site),
+          before,
+          await waitIngested(opts, ip, before as number, 10),
+        );
   if (["dropped", "rejected", "unreachable"].includes(verdict)) {
-    return { ...opts, "red/exit": 1,
-      "red/err": `synthetic event was not ingested: ${verdict}` };
+    return {
+      ...opts,
+      "red/exit": 1,
+      "red/err": `synthetic event was not ingested: ${verdict}`,
+    };
   }
   if ((await runBackup(opts, ip)) === undefined) {
-    return { ...opts, "red/exit": 1, "red/err": "backup unit or timer is not healthy" };
+    return {
+      ...opts,
+      "red/exit": 1,
+      "red/err": "backup unit or timer is not healthy",
+    };
   }
   if (!freshBackup(await backupListing(opts, ip), since)) {
-    return { ...opts, "red/exit": 1,
-      "red/err": "no backup object newer than this run under r2:" +
-        `${opts["rybbit-backup-r2-bucket"]}/${opts.profile}` };
+    return {
+      ...opts,
+      "red/exit": 1,
+      "red/err":
+        "no backup object newer than this run under r2:" +
+        `${opts["rybbit-backup-r2-bucket"]}/${opts.profile}`,
+    };
   }
-  return { ...opts, "red/exit": 0,
-    "rybbit/acceptance": { health: "ok", event: verdict, backup: "verified-in-r2" } };
+  return {
+    ...opts,
+    "red/exit": 0,
+    "rybbit/acceptance": {
+      health: "ok",
+      event: verdict,
+      backup: "verified-in-r2",
+    },
+  };
 }

@@ -9,6 +9,7 @@
             [clojure.test :refer [deftest is]]
             [green.scaffold :as sc]
             [io.github.getcolors.rybbit.ssh-config :as ssh-config]
+            [io.github.getcolors.rybbit.access :as access]
             [io.github.getcolors.rybbit.tools :as tools]
             [io.github.getcolors.rybbit.validate-test :refer [fixture keygen]]
             [io.github.getcolors.rybbit.workflow :as workflow]))
@@ -31,12 +32,9 @@
 (deftest alias-is-the-profile
   (is (= "rybbit-fixture" (ssh-config/host-alias (fixture)))))
 
-(deftest identity-file-keeps-the-tilde
-  ;; An expanded home directory would make the rendered block differ per
-  ;; workstation; OpenSSH expands the tilde itself.
-  (is (= "~/.ssh/rybbit-fixture" (ssh-config/identity-file (fixture))))
-  (is (not (str/includes? (ssh-config/identity-file (fixture))
-                          (System/getProperty "user.home")))))
+(deftest identity-file-selects-the-public-cache
+  (is (= "" (ssh-config/identity-file (fixture))))
+  (is (= "/cache/identity.pub" (ssh-config/identity-file (fixture :ssh-private-key-path "/cache/identity.pub")))))
 
 (deftest the-marker-is-the-alias-alone
   ;; The profile is <package>-<suffix>, so a marker carrying the package name
@@ -179,14 +177,14 @@
     (doseq [opts [(assoc (fixture) :green/event :build)
                   (assoc (keygen) :green/event :build)
                   (assoc (fixture) :green/event :create :green/dry-run true)]]
-      (is (= 0 (:green/exit (workflow/start-step opts {})))))))
+      (is (= 0 (:green/exit (access/scoped #(workflow/start-step opts {}))))))))
 
 (deftest the-local-play-renders-no-address
   ;; Address, user and alias are run-time facts and travel as extra-vars, so
   ;; the rendered playbook carries none of them.
   (let [data (tools/ansible-local-data (assoc (fixture) :ip "203.0.113.7"))]
     (is (not (contains? data :ip-rendered)))
-    (is (= "~/.ssh/rybbit-fixture" (:ssh-config-identity-file data)))))
+    (is (= "" (:ssh-config-identity-file data)))))
 
 (deftest the-local-stage-renders-three-files
   (let [targets (map #(str (:target %)) (tools/ansible-local-specs (fixture)))]
@@ -199,7 +197,7 @@
 
 (deftest keygen-mode-decides-the-identity-lines
   (is (true? (:ssh-keygen (tools/ansible-local-data (keygen)))))
-  (is (false? (:ssh-keygen (tools/ansible-local-data (fixture))))))
+  (is (true? (:ssh-keygen (tools/ansible-local-data (fixture))))))
 
 (defn- render-play [opts]
   (sc/render-template (tools/template "ansible-local" "main.yml")
@@ -208,7 +206,7 @@
 
 (deftest local-updater-gets-key-ownership-mode
  (is (str/includes? (render-play (keygen)) "colors_keygen: true"))
- (is (str/includes? (render-play (fixture)) "colors_keygen: false"))
+ (is (str/includes? (render-play (fixture)) "colors_keygen: true"))
  (is (str/includes? (render-play (fixture)) "fcntl.flock")))
 
 
@@ -223,9 +221,9 @@
 (deftest delete-removes-the-block-before-the-destroy
   ;; The opposite of the keypair, which goes last. A stale block is harmless; a
   ;; key removed early locks the operator out of a machine that still exists.
-  (is (= [:rybbit/ssh-config]
-         (vec (rest (workflow/wire-fn :rybbit/dns {:green/event :delete})))))
   (is (= [:rybbit/infrastructure]
+         (vec (rest (workflow/wire-fn :rybbit/dns {:green/event :delete})))))
+  (is (= [:rybbit/ansible]
          (vec (rest (workflow/wire-fn :rybbit/ssh-config {:green/event :delete})))))
-  (is (= []
+  (is (= [:rybbit/registration-delete]
          (vec (rest (workflow/wire-fn :rybbit/infrastructure {:green/event :delete}))))))

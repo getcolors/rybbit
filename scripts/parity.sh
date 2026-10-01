@@ -9,11 +9,8 @@ set -euo pipefail
 # (red/resources and blue's embedded resources are copies of green's tree, not
 # references to it).
 #
-# Four fixtures, one per advertised compute provider per keypair mode: the SSH
-# Keypair Standard has two modes and parity means both keygen and opt-out hold
-# in every colour, and providers are selected by template directory, so the
-# DigitalOcean tree and the Vultr tree (with its generated firewall.tf.json)
-# must both hold in every colour too.
+# Four v2 fixtures cover Google, separate provider registration, R2/S3
+# backends and empty HTTP ingress; provider matrices remain library-owned.
 #
 # Renders resolve each colour's package from this working tree (the
 # RYBBIT_LIB_ROOT overrides), while green, once, red, and blue stay on their
@@ -34,6 +31,11 @@ build_variant() {
   (cd "$root/blue" && uv run python -m package_rybbit_blue build -f "$tmp/$variant-blue.yml" >/dev/null)
   diff -r "$tmp/$variant/green" "$tmp/$variant/red"
   diff -r "$tmp/$variant/green" "$tmp/$variant/blue"
+  (cd "$root/green" && bb "$root/scripts/runtime-green.clj" "$root/test/fixtures/$variant.yml") > "$tmp/$variant-green-runtime.json"
+  (cd "$root/red" && bun "$root/scripts/runtime-red.ts" "$root/test/fixtures/$variant.yml") > "$tmp/$variant-red-runtime.json"
+  (cd "$root/blue" && uv run python "$root/scripts/runtime-blue.py" "$root/test/fixtures/$variant.yml") > "$tmp/$variant-blue-runtime.json"
+  diff -u "$tmp/$variant-green-runtime.json" "$tmp/$variant-red-runtime.json"
+  diff -u "$tmp/$variant-green-runtime.json" "$tmp/$variant-blue-runtime.json"
 }
 
 build_variant colors
@@ -44,4 +46,4 @@ build_variant keygen-vultr
 diff -r "$root/green/src/resources/io/github/getcolors/rybbit" "$root/red/resources"
 diff -r "$root/green/src/resources/io/github/getcolors/rybbit" "$root/blue/src/package_rybbit_blue/resources"
 
-echo "green, red, and blue Rybbit artifacts are byte-identical"
+echo "green, red, and blue Rybbit artifacts and runtime contracts are byte-identical"

@@ -1,0 +1,45 @@
+{
+  "output": {
+    "compute_identity": {
+      "value": {
+        "kind": "ssh-registration",
+        "node_id": "registration-machine-access",
+        "profile": "rybbit-vultr-keygen-fixture",
+        "provider": "vultr",
+        "provider_scope": "vultr",
+        "ssh_fingerprint": "SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk",
+        "ssh_resource_reference": "ssh-resource:build-placeholder",
+        "state_filename": "rybbit-ssh-registration.tfstate"
+      }
+    },
+    "params": {
+      "value": {
+        "id": "${tostring(vultr_ssh_key.machine.id)}",
+        "node_id": "registration-machine-access",
+        "provider": "vultr"
+      }
+    }
+  },
+  "provider": {
+    "vultr": {}
+  },
+  "resource": {
+    "vultr_ssh_key": {
+      "machine": {
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "name": "rybbit-vultr-keygen-fixture-registration-machine-access",
+        "ssh_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    }
+  },
+  "terraform": {
+    "required_providers": {
+      "vultr": {
+        "source": "vultr/vultr",
+        "version": "2.32.0"
+      }
+    }
+  }
+}

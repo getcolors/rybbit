@@ -22,11 +22,9 @@ export function hostAlias(opts: Opts): string {
   return String(opts.profile || "rybbit");
 }
 
-// `~/.ssh/<profile>`, written with a literal tilde rather than an expanded
-// home directory. OpenSSH expands it, and leaving it unexpanded is what keeps
-// the rendered block identical on every workstation.
+// Public identity cache selected and verified by the temporary access scope.
 export function identityFile(opts: Opts): string {
-  return `~/.ssh/${hostAlias(opts)}`;
+  return String(opts['ssh-private-key-path'] ?? '');
 }
 
 export function configPath(): string {

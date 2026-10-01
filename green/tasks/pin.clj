@@ -22,16 +22,13 @@
   (str "# dependencies = [\"package-rybbit-blue\", \"blue\", \"package-once-blue\", \"colors-compute-blue\"]\n"
        "#\n"
        "# [tool.uv.sources]\n"
-       "# colors-compute-blue = { git = \"https://github.com/getcolors/colors-compute.git\", rev = \"ae28ea74962bb1897fa6365c143c1d43ac1fe095\", subdirectory = \"blue\" }\n"
+       "# colors-compute-blue = { git = \"https://github.com/getcolors/colors-compute.git\", rev = \"59acb202029ea1061c2c68d0a6ad2bb509eccad4\", subdirectory = \"blue\" }\n"
        "# package-rybbit-blue = { git = \"https://github.com/getcolors/rybbit.git\", rev = \"" sha "\", subdirectory = \"blue\" }\n"
-       "# blue = { git = \"https://github.com/getcolors/blue.git\", rev = \"290f313ead5ca162875c33a049c880da017eae09\" }\n"
-       "# package-once-blue = { git = \"https://github.com/getcolors/once.git\", subdirectory = \"blue\", rev = \"38e3cd66674a32fb96605e1b17ae6791086ad5c1\" }\n"
+       "# blue = { git = \"https://github.com/getcolors/blue.git\", rev = \"784018bb586882efbd91affd42139582a40ea1d1\" }\n"
+       "# package-once-blue = { git = \"https://github.com/getcolors/once.git\", subdirectory = \"blue\", rev = \"a41c43d244cb57da25b2a0c71f19b4e42a101bea\" }\n"
        "#\n"
-       ;; package-once-blue at 38e3cd6 pins this same blue rev; the override is
-       ;; redundant but harmless and kept so the launcher and blue/pyproject.toml
-       ;; agree should ONCE ever pin an older blue again.
        "# [tool.uv]\n"
-       "# override-dependencies = [\"blue @ git+https://github.com/getcolors/blue.git@290f313ead5ca162875c33a049c880da017eae09\"]\n"
+       "# override-dependencies = [\"blue @ git+https://github.com/getcolors/blue.git@784018bb586882efbd91affd42139582a40ea1d1\"]\n"
        "# ///"))
 (defn stamp-blue [s sha]
   ;; First stamp is structural: the metadata block gains its git sources and the

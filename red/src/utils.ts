@@ -1,2 +1,2 @@
 // Bump on any change a launcher pinned to an older commit could not survive.
-export const contract = 1;
+export const contract = 2;

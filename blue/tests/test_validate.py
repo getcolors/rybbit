@@ -32,8 +32,8 @@ def test_keygen_fixtures_are_valid():
 def test_absent_machine_key_selects_keygen():
     assert validate.keygen(keygen())
     assert validate.keygen(keygen_vultr())
-    assert not validate.keygen(fixture())
-    assert not validate.keygen(vultr_fixture())
+    assert validate.keygen(fixture())
+    assert validate.keygen(vultr_fixture())
     # Absence, not a flag, is the switch.
     assert validate.keygen(vultr_fixture({"vultr-ssh-keys": None}))
 
@@ -76,3 +76,15 @@ def test_profile_overlay_is_refused():
 def test_validation_accepts_a_digest_pin():
     assert validate.state_errors(fixture()) == []
     assert validate.state_errors(fixture({"rybbit-backend-image": "no-tag-at-all"}))
+
+
+def test_v2_refuses_legacy_keys():
+    for key, value in [('ssh-keygen', False), ('ssh-private-key-path', '/tmp/key'), ('vultr-ssh-keys', ['1'])]:
+        assert validate.state_errors(fixture({key: value}))
+    assert validate.state_errors(fixture({'compute-api-version': 1}))
+
+
+def test_google_refuses_selected_and_unselected_legacy_references():
+    for key in ('google-ssh-authorized-keys', 'vultr-ssh-keys', 'digitalocean-ssh-keys', 'ssh-key-id'):
+        for value in (None, ['legacy']):
+            assert 'external SSH keys are outside the single-node contract' in validate.state_errors(fixture({key: value}))

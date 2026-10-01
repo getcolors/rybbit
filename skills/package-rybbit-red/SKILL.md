@@ -12,31 +12,43 @@ configuration or running a lifecycle operation.
 
 ## Compute ownership
 
-The pinned `colors-compute` library owns provider selection, remote S3/R2
-state, deployment coordination, machine keys, network policy and the single
-node. This package supplies singleton topology and SSH/HTTP ingress, then
-uses the returned address, login user and SSH identity for its application
-steps. New provider support belongs in the library; consumers update its pin.
-The application needs a supported Ubuntu image and sufficient memory for
-Rybbit and its data services. Build first to check adapter capabilities.
+This version requires `compute-api-version: 2` and creates fresh deployments
+only. Existing deployments keep their pinned launchers, configuration, keys and
+state. There is no migration, adoption or compatibility layer.
 
-Use `rybbit-ssh-sources` and `rybbit-http-sources` for neutral CIDR
-allowlists. Existing selected-provider source options remain compatible.
-External account key references may use `ssh-private-key-path` or operator/agent SSH configuration; external
-private keys are never generated or removed. The local SSH block writes
-`IdentityFile` only for a managed deployment key.
+The pinned [colors-compute v2 contract](https://github.com/getcolors/colors-compute/blob/59acb202029ea1061c2c68d0a6ad2bb509eccad4/contracts/node.md)
+owns provider validation, templates, backend access and guarded node operations.
+Rybbit owns a singleton `rybbit-compute`, workflow ordering, a profile lock, and
+application convergence. Provider support comes from that library pin; package
+code does not maintain a provider matrix.
 
-Existing `<profile>/rybbit-infrastructure.tfstate` is refused before
-compute mutation. Do not remove it to bypass this check: migrate ownership
-explicitly or destroy the old deployment through its original version first.
-Unreadable state and provider mismatches fail closed.
+State uses `<profile>/rybbit-node-0.tfstate`; providers requiring public-key
+registration use a separate `<profile>/rybbit-ssh-registration.tfstate`. DNS
+retains `<profile>/rybbit-dns.tfstate`. R2 and S3 are supported; S3 uses ambient
+AWS credentials. `compute-require-existing-state: true` guards subsequent
+creates against missing ownership, but cannot create or import initial state.
+Use fresh identities and state roots, never redirect an existing deployment.
 
-The default compute provider remains `vultr`. An explicit `COLORS_PAR_IP`
-changes only the delete-cleanup target after a successful owned-state read;
-it cannot bypass unreadable state or provider identity checks.
+Encrypted SSH authority is `ssh/machine-access/resource.json` beneath the
+profile in the backend. Supply `COLORS_PAR_RYBBIT_SSH_PASSPHRASE` at runtime and
+retain it for recovery. No decrypted private key is persisted. A temporary agent
+and public identity cache provide access; use the launcher's `ssh` command.
+External private-key paths and legacy provider key references are refused.
 
-Rybbit requests TCP 22 for SSH, TCP 80/443 for HTTP, and UDP 443 for HTTP/3.
-Empty HTTP sources close both HTTP and HTTP/3 ingress.
+Use `compute-ssh-sources` and `compute-http-sources` for CIDR allowlists.
+Rybbit also accepts its `rybbit-*` source aliases and selected-provider source
+settings. TCP 22 is required; HTTP sources govern TCP 80/443 and UDP 443.
+An empty HTTP list closes both HTTP and HTTP/3 ingress. Optional
+`compute-network-mode` selects a library-supported network mode; when omitted,
+the provider recipe supplies its default. A singleton needing no private
+network can request `none` where the provider supports it.
+
+Create writes the owned local SSH alias before DNS and remote convergence.
+Delete removes aliases, performs application cleanup, destroys DNS and compute,
+then removes any provider registration. It retains encrypted SSH authority.
+The public cache alone cannot authenticate after the scoped agent stops.
+Build renders under `.colors/build/<profile>/` without credentials; dry-run
+performs no state reads or writes.
 
 ## Safety
 
@@ -45,7 +57,7 @@ Empty HTTP sources close both HTTP and HTTP/3 ingress.
 - Keep `compute-prevent-destroy: true`; deletion requires separate explicit
   authorization and a one-run environment override.
 - Build and dry-run before a real create.
-- Only Caddy's 80/443 are public. PostgreSQL, ClickHouse, Redis and the Rybbit
+- Only SSH and Caddy's configured ingress are public. PostgreSQL, ClickHouse, Redis and the Rybbit
   backend and client ports stay on the private Compose network.
 - `rybbit-disable-signup` is desired state. Rybbit has no first-run bootstrap,
   so it must stay `false` until you have registered the first account, then be
@@ -58,5 +70,6 @@ Empty HTTP sources close both HTTP and HTTP/3 ingress.
 ```
 
 A real create ends in acceptance: HTTPS health with a verified certificate, a
-synthetic event read back out of ClickHouse, and a backup drill confirmed by a
-fresh object in R2.
+synthetic event read back out of ClickHouse once an organization exists, and a
+backup drill confirmed by a fresh object in R2. Before first-account bootstrap,
+ingestion may report `not-configured`; rerun acceptance after registration.

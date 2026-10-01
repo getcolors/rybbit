@@ -12,7 +12,6 @@ import re
 
 from blue.cli import par_name
 from . import compute
-from colors_compute.ssh import _mode
 from package_once_blue.validate import providers as once_providers
 
 profile_par = par_name("profile")
@@ -52,10 +51,7 @@ def env_errors(env: dict) -> list[str]:
 
 
 def keygen(opts):
-    try:
-        return _mode(opts)['mode'] == 'managed'
-    except ValueError:
-        return True
+    return True
 
 
 def _positive_int(x) -> bool:

@@ -1,11 +1,12 @@
-import { execCli, findUp, runCli } from "red/cli";
+import { findUp, runCli } from "red/cli";
+import { scoped } from "./access.ts";
 import type { Opts } from "red/workflow";
 import { rybbitWorkflow } from "./workflow.ts";
 
-export const lifecycleCommands = ["build", "create", "delete"];
+export const lifecycleCommands = ["build", "create", "delete", "ssh"];
 
 export const usage =
-  "Usage: red <build|create|delete> [-f|--file colors.yml] [--dry-run]\n" +
+  "Usage: red <build|create|delete|ssh> [-f|--file colors.yml] [--dry-run]\n" +
   "\n" +
   "  build     render the work directory only — contact nothing\n" +
   "  create    provision and verify single-node Rybbit\n" +
@@ -34,18 +35,17 @@ export async function run(...args: string[]): Promise<Opts> {
     return { "red/exit": 0, "red/err": usage };
   }
   if (lifecycleCommands.includes(command)) {
-    return runCli(rybbitWorkflow, withFile);
+    return scoped(() => runCli(rybbitWorkflow, withFile));
   }
   return { "red/exit": 2, "red/err": usage };
 }
 
 export async function exec(args: string[] = Bun.argv.slice(2)): Promise<never> {
-  if (lifecycleCommands.includes(args[0] ?? "")) {
-    return execCli(rybbitWorkflow, defaultArgs(args));
-  }
   const result = await run(...args);
   if (result["red/err"]) {
-    ((result["red/exit"] ?? 0) === 0 ? console.log : console.error)(result["red/err"]);
+    ((result["red/exit"] ?? 0) === 0 ? console.log : console.error)(
+      result["red/err"],
+    );
   }
   return process.exit(result["red/exit"] ?? 0);
 }

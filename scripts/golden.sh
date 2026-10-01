@@ -5,7 +5,7 @@ set -euo pipefail
 # and diff against committed output. scripts/parity.sh is the net across
 # colours.
 #
-# Four fixtures cover both managed and external keys on two adapters.
+# Four v2 fixtures cover Google, registrations, R2/S3 and closed HTTP ingress.
 # Inspect changed application files before accepting a refreshed golden.
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -22,10 +22,9 @@ for variant in colors colors-vultr keygen keygen-vultr; do
 
   profile=$(sed -n 's/^profile: //p' "$fixture")
   provider=$(sed -n 's/^provider-compute: //p' "$fixture")
-  actual="$tmp/work/$profile"
+  actual="$tmp/work/build/$profile"
   golden="$root/test/resources/golden/local/$profile"
-  mode=external; [[ $variant == keygen* ]] && mode=managed
-  python3 "$root/scripts/check-compute-plan.py" "$actual" "$mode"
+  python3 "$root/scripts/check-compute-plan.py" "$actual" "$provider"
 
   # No rendered artefact may carry a real secret into a committed golden.
   # Checked before --accept copies anything. POSIX grep on purpose: a missing
@@ -55,10 +54,10 @@ for variant in colors colors-vultr keygen keygen-vultr; do
     echo "golden: $profile rendered an address into the local ssh_config stage" >&2; exit 1
   fi
   if [[ $accept == 1 ]]; then
-    rm -rf "$golden"; mkdir -p "$(dirname "$golden")"; cp -a "$actual" "$golden"; continue
+    rm -rf "$golden"; mkdir -p "$(dirname "$golden")"; cp -a "$actual" "$golden"; rm -f "$golden/.rybbit.lock"; continue
   fi
   [[ -d "$golden" ]] || { echo "golden missing for $profile; inspect build then run bb golden:accept" >&2; exit 1; }
-  diff -ru "$golden" "$actual" || status=1
+  diff -ru --exclude=.rybbit.lock "$golden" "$actual" || status=1
 done
 
 exit "$status"

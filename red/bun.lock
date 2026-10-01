@@ -5,9 +5,9 @@
     "": {
       "name": "package-rybbit-red-dev",
       "dependencies": {
-        "colors-compute-red": "github:getcolors/colors-compute#ae28ea74962bb1897fa6365c143c1d43ac1fe095",
-        "package-once-red": "github:getcolors/once#38e3cd66674a32fb96605e1b17ae6791086ad5c1",
-        "red": "github:getcolors/red#db9bfe61282e2093f4098bf5a6ee0cd10added6e",
+        "colors-compute-red": "github:getcolors/colors-compute#59acb202029ea1061c2c68d0a6ad2bb509eccad4",
+        "package-once-red": "github:getcolors/once#a41c43d244cb57da25b2a0c71f19b4e42a101bea",
+        "red": "github:getcolors/red#f28d4398cda1a2f6ca074011b924ed0e9da0ce4a",
       },
       "devDependencies": {
         "@types/bun": "^1.2.0",
@@ -62,11 +62,11 @@
 
     "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "colors-compute-red": ["colors-compute-red@github:getcolors/colors-compute#ae28ea7", { "peerDependencies": { "red": "*" } }, "getcolors-colors-compute-ae28ea7", "sha512-AKgS7dS07pGgS2O7OhJfAu6MS0/xxJTx/WIxyfGORXbySJEI10ySThyqPYWWJu9SRcgzdFCw0DpkIVm3mWlInQ=="],
+    "colors-compute-red": ["colors-compute-red@github:getcolors/colors-compute#59acb20", {}, "getcolors-colors-compute-59acb20", "sha512-ICRwsBgJi5jjxEroPMBZ4EGLyUiq7KUFGDgkxaEaI2ezWcLKxCqB/Ei17T7MytxaR0ZHKbthUR5/H2rZPJz5vg=="],
 
-    "package-once-red": ["package-once-red@github:getcolors/once#38e3cd6", { "peerDependencies": { "red": "*" }, "optionalPeers": ["red"] }, "getcolors-once-38e3cd6", "sha512-dKUZTCH7WsovGDcbOQ+cccNTMPNjBRUTvXvXILiZx/FujBQioSbwz0U2LpIa+3/osdguCiV5e21bDqPf/7m+pw=="],
+    "package-once-red": ["package-once-red@github:getcolors/once#a41c43d", { "peerDependencies": { "colors-compute-red": "*", "red": "*" }, "optionalPeers": ["colors-compute-red", "red"] }, "getcolors-once-a41c43d", "sha512-1sTfphf7nC1MV6JKJx4V4hDwz5R4ZnutI7mR6JR5CpydMowu1FXWatB9Ft2J7x0b/Yg9PilExhMcwtoHeah5xA=="],
 
-    "red": ["red@github:getcolors/red#db9bfe6", { "dependencies": { "zod": "^4.0.0" } }, "getcolors-red-db9bfe6", "sha512-3uHKgJeICb/ljQxiTzLTLUdFNfNqvzPGv08X4LRVOU5uk7wmT7wEuVag/xhj87Qn6tvCtAG8uDp8IbIROBGmmg=="],
+    "red": ["red@github:getcolors/red#f28d439", { "dependencies": { "zod": "^4.0.0" } }, "getcolors-red-f28d439", "sha512-gJBOAmBTIyMak+61j49J0pWUUH2leBBAK4oGt5IesBqWgdT3WXMiDXu4nz1pKpsoB4Vbq9MCxyN744dW57SDKg=="],
 
     "typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 

@@ -32,12 +32,9 @@
 
 ;; --- the spec handed to ONCE
 
-(deftest absent-machine-key-selects-keygen
-  (is (validate/keygen? (keygen)))
-  (is (validate/keygen? (keygen-vultr)))
-  (is (not (validate/keygen? (fixture))))
-  (is (not (validate/keygen? (vultr-fixture))))
-  (is (validate/keygen? (vultr-fixture :vultr-ssh-keys nil)) "absence, not a flag, is the switch"))
+(deftest rejects-legacy-keys
+  (doseq [key [:ssh-private-key-path :ssh-keygen :vultr-ssh-keys :digitalocean-ssh-keys]]
+    (is (seq (validate/state-errors (assoc (fixture) key "legacy"))))))
 
 (deftest reports-all-errors
   (let [errors (validate/state-errors
@@ -51,3 +48,8 @@
 (deftest profile-overlay-is-refused
   (is (seq (validate/env-errors {"COLORS_PAR_PROFILE" "other"})))
   (is (nil? (validate/env-errors {}))))
+
+(deftest all-adapter-legacy-identities-are-refused
+  (doseq [key [:vultr-ssh-keys :digitalocean-ssh-keys :ssh-key-id]]
+    (is (some #(str/includes? % "external SSH keys")
+              (validate/state-errors (fixture :provider-compute "google" key nil))))))

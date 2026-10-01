@@ -1,2 +1,2 @@
 (ns io.github.getcolors.rybbit.utils)
-(def contract 1)
+(def contract 2)

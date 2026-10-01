@@ -71,7 +71,7 @@ def backend_credential_env(opts: dict) -> dict[str, str] | None:
 def fallback_params(opts):
     if opts.get("blue/event") in ("create", "delete") and not opts.get("blue/dry-run"):
         raise ValueError("compute node unavailable")
-    return compute.node(compute.planned(opts))
+    return compute.fallback_params(opts)
 
 infrastructure_step = compute.infrastructure_step
 
@@ -92,7 +92,7 @@ def dns_data(opts: dict) -> dict:
     # note that doing so is also what keeps ssh to the host name
     # working, which a converge never needs but an operator may.
     return {**opts,
-            "ip": opts.get("ip") or fallback_params(opts)["ip"],
+            "ip": opts.get("ip") or ("192.0.2.10" if opts.get("colors-compute/already-destroyed") else fallback_params(opts)["ip"]),
             "cloudflare-zone": zone,
             "cloudflare-proxied": (opts.get("cloudflare-proxied")
                                    if opts.get("cloudflare-proxied") is not None
@@ -128,7 +128,7 @@ def ansible_local_data(opts: dict) -> dict:
     Config Standard §6)."""
     return {**opts,
             "ssh-keygen": validate.keygen(opts), "ssh-identity-present": bool(opts.get("ssh-private-key-path")),
-            "ssh-config-identity-file": ssh_config.identity_file(opts)}
+            "ssh-config-identity-file": opts.get("ssh-private-key-path") or ""}
 
 
 def ansible_local_specs(opts: dict) -> list[dict]:
@@ -148,9 +148,12 @@ async def ansible_local_step(opts: dict) -> dict:
         dir=dir, inventory="inventory.ini",
         playbooks={"create": "main.yml", "delete": "main.yml"},
         extra_vars={"host_alias": ssh_config.host_alias(opts),
-                    "ip": opts.get("ip") or fallback_params(opts)["ip"],
-                    "user": opts.get("user") or "root",
+                    "ssh_hosts": [{"name": opts.get("profile"),
+                                   "ip": opts.get("ip") or ("192.0.2.10" if delete else fallback_params(opts)["ip"]),
+                                   "user": opts.get("user") or "root",
+                                   "identity_file": opts.get("ssh-private-key-path") or ""}],
                     "block_state": "absent" if delete else "present"})
+
 
 
 # ---------------------------------------------------------------- ansible
@@ -176,7 +179,9 @@ def inventory(opts: dict) -> str:
     return _pretty(
         {"all": {"children": {"rybbit": {"hosts": {
             opts.get("profile"): {"ansible_host": opts.get("ip") or fallback_params(opts)["ip"],
-                                  "ansible_user": opts.get("user") or fallback_params(opts)["user"]}}}}}})
+                                  "ansible_user": opts.get("user") or fallback_params(opts)["user"],
+                                  "ansible_ssh_private_key_file": opts.get("ssh-private-key-path"),
+                                  "ansible_ssh_common_args": "-F /dev/null -o IdentityFile=none -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o IdentityAgent=" + (opts.get("rybbit/agent-socket") or "none") + " -o ForwardAgent=no -o ControlMaster=no -o ControlPersist=no -S none"}}}}}})
 
 
 def ansible_data(opts: dict) -> dict:
@@ -206,6 +211,8 @@ def ansible_specs(opts: dict) -> list[dict]:
 
 
 async def ansible_step(opts: dict) -> dict:
+    if opts.get("colors-compute/already-destroyed"):
+        return opts
     dir = tool_dir(opts, ansible_tool)
     if opts.get("blue/event") in ("create", "delete") and not opts.get("blue/dry-run") and not opts.get("ip"):
         return {**opts, "blue/exit": 1, "blue/err": "compute node unavailable"}
@@ -213,7 +220,7 @@ async def ansible_step(opts: dict) -> dict:
         opts, ansible_specs(opts),
         dir=dir, inventory="inventory.json",
         playbooks={"create": "main.yml", "delete": "cleanup.yml"},
-        host_key_checking=False)
+        host_key_checking=True)
 
 
 # --- Acceptance --------------------------------------------------------------
@@ -237,7 +244,7 @@ async def ssh_out(opts: dict, ip, command: str, timeout: int) -> str | None:
     holds it; opt-out mode adds nothing and relies on the operator's
     identities."""
     r = await runtime.exec(
-        ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
+        ["ssh", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10",
          *ssh.identity_args(opts), f"{opts.get('user') or 'root'}@{ip}", command if opts.get("user", "root") == "root" else "sudo -n -- sh -c " + shlex.quote(command)],
         timeout_ms=timeout)
     return str(r.out or "").strip() if r.exit == 0 else None

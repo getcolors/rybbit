@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.11"
 
 [manifest]
-overrides = [{ name = "blue", git = "https://github.com/getcolors/blue.git?rev=290f313ead5ca162875c33a049c880da017eae09" }]
+overrides = [{ name = "blue", git = "https://github.com/getcolors/blue.git?rev=784018bb586882efbd91affd42139582a40ea1d1" }]
 
 [[package]]
 name = "annotated-types"
@@ -17,7 +17,7 @@ wheels = [
 [[package]]
 name = "blue"
 version = "0.1.0"
-source = { git = "https://github.com/getcolors/blue.git?rev=290f313ead5ca162875c33a049c880da017eae09#290f313ead5ca162875c33a049c880da017eae09" }
+source = { git = "https://github.com/getcolors/blue.git?rev=784018bb586882efbd91affd42139582a40ea1d1#784018bb586882efbd91affd42139582a40ea1d1" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -35,10 +35,7 @@ wheels = [
 [[package]]
 name = "colors-compute-blue"
 version = "0.1.0"
-source = { git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=ae28ea74962bb1897fa6365c143c1d43ac1fe095#ae28ea74962bb1897fa6365c143c1d43ac1fe095" }
-dependencies = [
-    { name = "blue" },
-]
+source = { git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=59acb202029ea1061c2c68d0a6ad2bb509eccad4#59acb202029ea1061c2c68d0a6ad2bb509eccad4" }
 
 [[package]]
 name = "iniconfig"
@@ -52,9 +49,10 @@ wheels = [
 [[package]]
 name = "package-once-blue"
 version = "0.1.0"
-source = { git = "https://github.com/getcolors/once.git?subdirectory=blue&rev=38e3cd66674a32fb96605e1b17ae6791086ad5c1#38e3cd66674a32fb96605e1b17ae6791086ad5c1" }
+source = { git = "https://github.com/getcolors/once.git?subdirectory=blue&rev=a41c43d244cb57da25b2a0c71f19b4e42a101bea#a41c43d244cb57da25b2a0c71f19b4e42a101bea" }
 dependencies = [
     { name = "blue" },
+    { name = "colors-compute-blue" },
 ]
 
 [[package]]
@@ -75,9 +73,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "blue", git = "https://github.com/getcolors/blue.git?rev=290f313ead5ca162875c33a049c880da017eae09" },
-    { name = "colors-compute-blue", git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=ae28ea74962bb1897fa6365c143c1d43ac1fe095" },
-    { name = "package-once-blue", git = "https://github.com/getcolors/once.git?subdirectory=blue&rev=38e3cd66674a32fb96605e1b17ae6791086ad5c1" },
+    { name = "blue", git = "https://github.com/getcolors/blue.git?rev=784018bb586882efbd91affd42139582a40ea1d1" },
+    { name = "colors-compute-blue", git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=59acb202029ea1061c2c68d0a6ad2bb509eccad4" },
+    { name = "package-once-blue", git = "https://github.com/getcolors/once.git?subdirectory=blue&rev=a41c43d244cb57da25b2a0c71f19b4e42a101bea" },
 ]
 
 [package.metadata.requires-dev]

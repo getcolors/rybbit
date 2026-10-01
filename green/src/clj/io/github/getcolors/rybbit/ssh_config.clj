@@ -1,16 +1,5 @@
 (ns io.github.getcolors.rybbit.ssh-config
-  "The deployment's `~/.ssh/config` block, per the workspace SSH Config Standard.
-
-  The block itself is written by the `ansible-local` stage, because that is the
-  one place the address is known and because `blockinfile` already handles the
-  idempotent replace. What lives here is everything that must happen before the
-  stage renders: the alias, the identity file, and the refusal to adopt a
-  stanza this package did not write.
-
-  Unlike the keypair, this play is the package's own copy rather than ONCE's
-  (standard §7). The file is shared with every other host the operator reaches,
-  so an unrelated change upstream must not be able to rewrite it at pin-bump
-  time."
+  "Package-owned atomic SSH alias updates and unmanaged-stanza preflight."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]))
 
@@ -21,11 +10,9 @@
   (or (:profile opts) "rybbit"))
 
 (defn identity-file
-  "`~/.ssh/<profile>`, written with a literal tilde rather than an expanded
-  home directory. OpenSSH expands it, and leaving it unexpanded is what keeps
-  the rendered block identical on every workstation."
+  "The public identity cache selected inside the temporary agent scope."
   [opts]
-  (str "~/.ssh/" (host-alias opts)))
+  (or (:ssh-private-key-path opts) ""))
 
 (defn config-path []
   ;; $HOME first, the way the local play's `~` and the red and blue twins

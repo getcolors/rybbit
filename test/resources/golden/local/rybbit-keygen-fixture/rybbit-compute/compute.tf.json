@@ -60,12 +60,28 @@
     }
   },
   "output": {
+    "compute_identity": {
+      "value": {
+        "node_id": "rybbit-compute",
+        "profile": "rybbit-keygen-fixture",
+        "provider": "digitalocean",
+        "ssh_fingerprint": "SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk",
+        "ssh_resource_reference": "ssh-resource:build-placeholder",
+        "state_filename": "rybbit-node-0.tfstate"
+      }
+    },
     "params": {
       "value": {
-        "deployment_tag": "${digitalocean_tag.deployment.name}",
-        "endpoint_ip": "${try(digitalocean_reserved_ip.endpoint[0].ip_address, null)}",
-        "firewall_id": "${digitalocean_firewall.network.id}",
-        "provider": "digitalocean"
+        "droplet_id": "${digitalocean_droplet.node.id}",
+        "ip": "${digitalocean_droplet.node.ipv4_address}",
+        "name": "${digitalocean_droplet.node.name}",
+        "node_id": "rybbit-compute",
+        "provider": "digitalocean",
+        "provider_id": "${digitalocean_droplet.node.id}",
+        "ssh_key_id": "0",
+        "sudoer": "root",
+        "user": "root",
+        "vpc_ip": null
       }
     }
   },
@@ -73,6 +89,23 @@
     "digitalocean": {}
   },
   "resource": {
+    "digitalocean_droplet": {
+      "node": {
+        "image": "ubuntu-24-04-x64",
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "name": "rybbit-keygen-fixture-rybbit-compute",
+        "region": "ams3",
+        "size": "s-4vcpu-8gb",
+        "ssh_keys": [
+          "0"
+        ],
+        "tags": [
+          "${digitalocean_tag.deployment.name}"
+        ]
+      }
+    },
     "digitalocean_firewall": {
       "network": {
         "dynamic": {
@@ -90,7 +123,7 @@
         "lifecycle": {
           "prevent_destroy": true
         },
-        "name": "rybbit-fixture-firewall",
+        "name": "rybbit-keygen-fixture-rybbit-compute-firewall",
         "outbound_rule": [
           {
             "destination_addresses": [
@@ -138,7 +171,7 @@
         "lifecycle": {
           "prevent_destroy": true
         },
-        "name": "colors-compute-rybbit-fixture"
+        "name": "colors-compute-rybbit-keygen-fixture-rybbit-compute"
       }
     }
   },

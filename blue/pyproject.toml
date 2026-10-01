@@ -10,18 +10,14 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-colors-compute-blue = { git = "https://github.com/getcolors/colors-compute.git", rev = "ae28ea74962bb1897fa6365c143c1d43ac1fe095", subdirectory = "blue" }
-blue = { git = "https://github.com/getcolors/blue.git", rev = "290f313ead5ca162875c33a049c880da017eae09" }
-package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "38e3cd66674a32fb96605e1b17ae6791086ad5c1" }
+colors-compute-blue = { git = "https://github.com/getcolors/colors-compute.git", rev = "59acb202029ea1061c2c68d0a6ad2bb509eccad4", subdirectory = "blue" }
+blue = { git = "https://github.com/getcolors/blue.git", rev = "784018bb586882efbd91affd42139582a40ea1d1" }
+package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "a41c43d244cb57da25b2a0c71f19b4e42a101bea" }
 
-# ONCE 38e3cd6 pins the same blue rev as this package, so this override is
-# redundant; it is kept because it is harmless and, should ONCE ever pin an
-# older blue again, it is what stops the two git URLs from conflicting and
-# makes this package's blue pin the one that wins, the way tools.deps lets the
-# top-level green pin win in green/deps.edn.
+# Keep the SDK pin authoritative across transitive package dependencies.
 [tool.uv]
 override-dependencies = [
-    "blue @ git+https://github.com/getcolors/blue.git@290f313ead5ca162875c33a049c880da017eae09",
+    "blue @ git+https://github.com/getcolors/blue.git@784018bb586882efbd91affd42139582a40ea1d1",
 ]
 
 [dependency-groups]

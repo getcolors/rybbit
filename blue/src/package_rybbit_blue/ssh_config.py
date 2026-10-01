@@ -1,16 +1,4 @@
-"""The deployment's `~/.ssh/config` block, per the workspace SSH Config Standard.
-
-The block itself is written by the `ansible-local` stage, because that is the
-one place the address is known and because `blockinfile` already handles the
-idempotent replace. What lives here is everything that must happen before the
-stage renders: the alias, the identity file, and the refusal to adopt a stanza
-this package did not write.
-
-Unlike the keypair, this play is the package's own copy rather than ONCE's
-(standard §7). The file is shared with every other host the operator reaches,
-so an unrelated change upstream must not be able to rewrite it at pin-bump
-time.
-"""
+"""Ownership preflight for the package-owned atomic SSH config updater."""
 
 from __future__ import annotations
 
@@ -26,10 +14,8 @@ def host_alias(opts: dict) -> str:
 
 
 def identity_file(opts: dict) -> str:
-    """`~/.ssh/<profile>`, written with a literal tilde rather than an expanded
-    home directory. OpenSSH expands it, and leaving it unexpanded is what keeps
-    the rendered block identical on every workstation."""
-    return f"~/.ssh/{host_alias(opts)}"
+    """The verified public identity selected by the temporary access scope."""
+    return opts.get('ssh-private-key-path') or ''
 
 
 def config_path() -> Path:

@@ -9,15 +9,17 @@ import sys
 from blue.cli import find_up, run_cli
 
 from .workflow import rybbit_workflow
+from . import access
 
-USAGE = ("Usage: blue <build|create|delete> "
+USAGE = ("Usage: blue <build|create|delete|ssh> "
          "[-f|--file colors.yml] [--dry-run]\n"
          "\n"
          "  build     render the work directory only — contact nothing\n"
          "  create    provision and verify single-node Rybbit\n"
-         "  delete    remove the protected deployment")
+         "  delete    remove the protected deployment\n"
+         "  ssh       connect with a temporary machine access agent")
 
-LIFECYCLE = ("build", "create", "delete")
+LIFECYCLE = ("build", "create", "delete", "ssh")
 
 
 def _find() -> str:
@@ -37,7 +39,7 @@ async def run(*args):
     if command in ("help", "--help", "-h"):
         return {"blue/exit": 0, "blue/err": USAGE}
     if command in LIFECYCLE:
-        return await run_cli(rybbit_workflow, args)
+        return await access.scoped(lambda: run_cli(rybbit_workflow, args))
     return {"blue/exit": 2, "blue/err": USAGE}
 
 

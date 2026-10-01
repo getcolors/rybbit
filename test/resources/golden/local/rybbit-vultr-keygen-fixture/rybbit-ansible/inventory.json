@@ -5,7 +5,9 @@
         "hosts" : {
           "rybbit-vultr-keygen-fixture" : {
             "ansible_host" : "192.0.2.10",
-            "ansible_user" : "root"
+            "ansible_user" : "root",
+            "ansible_ssh_private_key_file" : "/home/build-placeholder/compute/rybbit-vultr-keygen-fixture/ssh/machine-access/identity.pub",
+            "ansible_ssh_common_args" : "-F /dev/null -o IdentityFile=none -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o IdentityAgent=/home/build-placeholder/agent.sock -o ForwardAgent=no -o ControlMaster=no -o ControlPersist=no -S none"
           }
         }
       }

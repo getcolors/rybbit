@@ -18,16 +18,16 @@
     (is (str/includes? json "\"proxied\" : true"))))
 
 (deftest dns-proxying-defaults-on-and-can-be-declined
-  (is (true? (:cloudflare-proxied (tools/dns-data (fixture)))))
+  (is (true? (:cloudflare-proxied (tools/dns-data (fixture :green/event :build)))))
   (is (false? (:cloudflare-proxied
-               (tools/dns-data (assoc (fixture) :cloudflare-proxied false)))))
+               (tools/dns-data (assoc (fixture) :green/event :build :cloudflare-proxied false)))))
   (is (str/includes? (tools/dns-json
                       (tools/dns-data (assoc (fixture) :ip "192.0.2.10"
                                              :cloudflare-proxied false)))
                      "\"proxied\" : false")))
 
 (deftest inventory-keeps-one-private-target
-  (let [inventory (tools/inventory (assoc (fixture) :ip "192.0.2.10"))]
+  (let [inventory (tools/inventory (assoc (fixture) :green/event :build :ip "192.0.2.10"))]
     (is (str/includes? inventory "192.0.2.10"))
     (is (str/includes? inventory "rybbit-fixture"))))
 
@@ -185,6 +185,6 @@
   (is (str/includes? @caddyfile "2400:cb00::/32")))
 
 (deftest neutral-http3-policy-and-observed-hostname
- (is (= [["tcp" 22] ["tcp" 80] ["tcp" 443] ["udp" 443]] (mapv (juxt :protocol :from_port) (get-in (compute/requirements (fixture)) [:security :ingress]))))
- (is (= 1 (count (get-in (compute/requirements (fixture :rybbit-http-sources [])) [:security :ingress]))))
+ (is (= [["tcp" 22] ["tcp" 80] ["tcp" 443] ["udp" 443]] (mapv (juxt :protocol :from_port) (get-in (compute/requirements (fixture)) [:ingress]))))
+ (is (= 1 (count (get-in (compute/requirements (fixture :compute-http-sources [])) [:ingress]))))
  (is (= "observed-node" (:compute-name (tools/ansible-data (fixture :ip "203.0.113.7" :user "ubuntu" :name "observed-node"))))))

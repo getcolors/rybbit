@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Rybbit launcher — a single-node Rybbit analytics stack on DigitalOcean.
+;; Rybbit launcher — a single-node Rybbit analytics stack through colors-compute v2.
 ;;
 ;; Desired state lives in colors.yml, found by walking up from the working
 ;; directory. Secrets and tokens are never written there: every credential key
@@ -42,7 +42,7 @@
   "Minimum io.github.getcolors.rybbit contract this launcher requires. Guarded at
   run time so a stale pin fails loudly instead of rendering templates from an
   older commit."
-  1)
+  2)
 
 ;; Managed by `bb pin` — do not edit by hand.
 ;;
@@ -156,15 +156,16 @@
 ;; ---------------------------------------------------------------------------
 ;; CLI
 
-(def lifecycle-commands #{"build" "create" "delete"})
+(def lifecycle-commands #{"build" "create" "delete" "ssh"})
 
 (def usage
-  (str "Usage: green <build|create|delete> "
+  (str "Usage: green <build|create|delete|ssh> "
        "[-f|--file colors.yml] [--dry-run]\n"
        "\n"
        "  build     render the work directory only — contact nothing\n"
        "  create    provision and verify single-node Rybbit\n"
-       "  delete    remove the protected deployment"))
+       "  delete    remove the protected deployment\n"
+       "  ssh       open a scoped administrative session"))
 
 (defn run
   "REPL-friendly entry point that returns the final outcome map."
@@ -179,7 +180,7 @@
       ;; Resolved rather than aliased: neither namespace is known to have loaded
       ;; until contract-error has passed.
       (or (contract-error)
-          ((requiring-resolve 'green.cli/run-cli)
+          ((requiring-resolve 'io.github.getcolors.rybbit.access/run-cli)
            @(requiring-resolve 'io.github.getcolors.rybbit.workflow/workflow)
            (default-args args)))
 

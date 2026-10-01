@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { renderTemplate } from "red/scaffold";
 import { StepError, type Opts } from "red/workflow";
+import {scoped} from "../src/access.ts";
 import * as ssh from "../src/ssh.ts";
 import * as sshConfig from "../src/ssh-config.ts";
 import * as tools from "../src/tools.ts";
@@ -18,7 +19,7 @@ const keygenVultrFile = join(import.meta.dir, "../../test/fixtures/keygen-vultr.
 
 function readFixture(path: string, overrides: Opts): Opts {
   const text = readFileSync(path, "utf8").replaceAll("WORKDIR", ".colors");
-  return { ...(Bun.YAML.parse(text) as Opts), ...overrides };
+  return { ...(Bun.YAML.parse(text) as Opts), "red/event":"build", ...overrides };
 }
 
 // DigitalOcean and Vultr in opt-out mode (an explicit key id, a name equal to
@@ -73,8 +74,8 @@ describe("validate", () => {
   test("absent machine key selects keygen", () => {
     expect(validate.keygen(keygen())).toBe(true);
     expect(validate.keygen(keygenVultr())).toBe(true);
-    expect(validate.keygen(fixture())).toBe(false);
-    expect(validate.keygen(vultrFixture())).toBe(false);
+    expect(validate.keygen(fixture())).toBe(true);
+    expect(validate.keygen(vultrFixture())).toBe(true);
     // Absence, not a flag, is the switch.
     expect(validate.keygen(vultrFixture({ "vultr-ssh-keys": null }))).toBe(true);
   });
@@ -323,9 +324,10 @@ describe("tools", () => {
 describe("ssh-config", () => {
   const configFile = () => join(home, ".ssh", "config");
 
-  test("the alias is the profile and the identity file keeps the tilde", () => {
+  test("the alias is the profile and the identity file comes from the scope", () => {
     expect(sshConfig.hostAlias(fixture())).toBe("rybbit-fixture");
-    expect(sshConfig.identityFile(fixture())).toBe("~/.ssh/rybbit-fixture");
+    expect(sshConfig.identityFile(fixture())).toBe("");
+    expect(sshConfig.identityFile(fixture({"ssh-private-key-path":"/tmp/public.pub"}))).toBe("/tmp/public.pub");
     expect(sshConfig.identityFile(fixture())).not.toContain(home);
   });
 
@@ -442,14 +444,14 @@ describe("ssh-config", () => {
     for (const opts of [fixture({ "red/event": "build" }),
                         keygen({ "red/event": "build" }),
                         fixture({ "red/event": "create", "red/dry-run": true })]) {
-      expect((await workflow.startStep(opts, {}))["red/exit"]).toBe(0);
+      expect((await scoped(()=>workflow.startStep({...opts,workdir:home}, {})))["red/exit"]).toBe(0);
     }
   });
 
   test("the local play renders no address and follows keygen mode", () => {
     const data = tools.ansibleLocalData(fixture({ ip: "203.0.113.7", user:"root", name:"rybbit-fixture" }));
-    expect(data["ssh-config-identity-file"]).toBe("~/.ssh/rybbit-fixture");
-    expect(data["ssh-keygen"]).toBe(false);
+    expect(data["ssh-config-identity-file"]).toBe(compute.placeholderKey(fixture()));
+    expect(data["ssh-keygen"]).toBe(true);
     expect(tools.ansibleLocalData(keygen())["ssh-keygen"]).toBe(true);
   });
 
@@ -463,7 +465,7 @@ describe("ssh-config", () => {
 
   test("local updater gets the selected key ownership mode",()=>{
     const render=(opts:Opts)=>renderTemplate(tools.template('ansible-local','main.yml'),tools.ansibleLocalData(opts),tools.templateOpts);
-    expect(render(keygen())).toContain('colors_keygen: true');expect(render(fixture())).toContain('colors_keygen: false');
+    expect(render(keygen())).toContain('IdentityAgent none');expect(render(fixture())).toContain('identity_file');
     expect(render(fixture())).toContain('fcntl.flock');
   });
 });
@@ -473,11 +475,11 @@ describe("ssh-config", () => {
 describe("library compute", () => {
   test("all fixtures validate and use one library node", () => {
     for(const f of [keygen,fixture,keygenVultr,vultrFixture]) expect(validate.stateErrors(f())).toEqual([]);
-    expect(compute.topology).toEqual([{role:null,count:1}]);
-    expect(compute.requirements(keygen()).legacy_state_keys).toEqual(['rybbit-keygen-fixture/rybbit-infrastructure.tfstate']);
+    expect(compute.request(keygen()).node_id).toBe('rybbit-compute');
+    expect(compute.request(keygen()).state_filename).toBe('rybbit-node-0.tfstate');
   });
   test("invalid compute inputs fail before execution", () => {
-    for(const update of [{'provider-compute':'unsupported'},{'digitalocean-size':null},{'digitalocean-ssh-sources':[]},{'digitalocean-http-sources':['bad']}]) expect(validate.stateErrors(keygen(update)).length).toBeGreaterThan(0);
+    for(const update of [{'provider-compute':'unsupported'},{'digitalocean-size':null},{'compute-ssh-sources':[]},{'compute-http-sources':['bad']}]) expect(validate.stateErrors(keygen(update)).length).toBeGreaterThan(0);
   });
   test("compute credentials are deferred to library state inspection", () => {
     const errors=validate.secretErrors(keygen()).join('\n');
@@ -485,25 +487,22 @@ describe("library compute", () => {
     expect(errors).not.toContain('COLORS_PAR_VULTR_API_KEY');
     expect(validate.tofuEnv(keygen(),'provider-compute')).toEqual({});
   });
-  test("failed lifecycle diagnostics and observed node identity survive", () => {
-    expect(compute.attach(keygen(),{status:'error',errors:['legacy compute state requires migration']})['red/err']).toBe('legacy compute state requires migration');
-    const result=compute.attach(keygen(),{status:'present',cluster:{nodes:[{ip:'203.0.113.7',user:'ubuntu'}]},key:{private_key_path:'/tmp/explicit'}});
-    expect(result.user).toBe('ubuntu');expect(result['ssh-private-key-path']).toBe('/tmp/explicit');
-    expect(compute.attach(keygen(),{status:'destroyed'})['rybbit/already-destroyed']).toBe(true);
-    expect(()=>compute.node({cluster:{nodes:[]}})).toThrow();
+  test("failed diagnostics and resolved identity survive",()=>{
+    expect(compute.failedResult(fixture(),{error:{message:'refused'}})['red/err']).toBe('refused');
+    expect(compute.params(fixture(),{params:{ip:'203.0.113.7',user:'ubuntu'}}).user).toBe('ubuntu');
+    expect(()=>compute.fallbackParams(fixture({'red/event':'create'}))).toThrow();
   });
   test("offline start needs no credentials", async()=> {
-    for(const f of [keygen,fixture,keygenVultr,vultrFixture]) expect((await workflow.startStep(f({'red/event':'build'}),{}))['red/exit']).toBe(0);
+    for(const f of [keygen,fixture,keygenVultr,vultrFixture]) expect((await scoped(()=>workflow.startStep(f({'red/event':'build',workdir:home}),{})))['red/exit']).toBe(0);
   });
-  test("managed build and external SSH identities are deterministic",()=> {
-    expect(ssh.withMachineKey(keygen({'red/event':'build'}))['ssh-private-key-path']).toBe('/home/build-placeholder/.ssh/rybbit-keygen-fixture');
-    expect(ssh.withMachineKey(fixture({'red/event':'build'}))).toEqual(fixture({'red/event':'build'}));
-    expect(ssh.identityArgs(fixture())[1]).toBe('/home/build-placeholder/.ssh/operator-key');
+  test("build scoped SSH identities are deterministic",()=>{
+    expect(ssh.withMachineKey(keygen())['ssh-private-key-path']).toBe(compute.placeholderKey(keygen()));
+    expect(ssh.identityArgs(ssh.withMachineKey(fixture()))).toContain('IdentityAgent=/home/build-placeholder/agent.sock');
   });
 });
 
 test("neutral HTTP3 ingress and observed hostname",()=>{
- expect(compute.requirements(fixture()).security.ingress.map(r=>[r.protocol,r.from_port])).toEqual([['tcp',22],['tcp',80],['tcp',443],['udp',443]]);
- expect(compute.requirements(fixture({'rybbit-http-sources':[]})).security.ingress).toHaveLength(1);
+ expect(compute.requirements(fixture()).ingress.map(r=>[r.protocol,r.from_port])).toEqual([['tcp',22],['tcp',80],['tcp',443],['udp',443]]);
+ expect(compute.requirements(fixture({'compute-http-sources':[]})).ingress).toHaveLength(1);
  expect(tools.ansibleData(fixture({ip:'203.0.113.7',user:'ubuntu',name:'observed-node'}))['compute-name']).toBe('observed-node');
 });

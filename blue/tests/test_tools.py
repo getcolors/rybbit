@@ -33,7 +33,7 @@ def resource(name: str) -> str:
 
 
 def test_dns_is_apex_and_proxied():
-    json_text = tools.dns_json(tools.dns_data({**fixture(), "ip": "192.0.2.10"}))
+    json_text = tools.dns_json(tools.dns_data({**fixture(), "ip": "192.0.2.10", "user":"ubuntu"}))
     assert "rybbit.example.com" in json_text
     assert "192.0.2.10" in json_text
     # Assert the value, not the key: "proxied" appears in the rendered record
@@ -43,15 +43,15 @@ def test_dns_is_apex_and_proxied():
 
 
 def test_dns_proxying_defaults_on_and_can_be_declined():
-    assert tools.dns_data(fixture())["cloudflare-proxied"] is True
-    assert tools.dns_data(fixture({"cloudflare-proxied": False}))["cloudflare-proxied"] \
+    assert tools.dns_data(fixture({"blue/event":"build"}))["cloudflare-proxied"] is True
+    assert tools.dns_data(fixture({"cloudflare-proxied": False,"blue/event":"build"}))["cloudflare-proxied"] \
         is False
     assert '"proxied" : false' in tools.dns_json(
         tools.dns_data({**fixture(), "ip": "192.0.2.10", "cloudflare-proxied": False}))
 
 
 def test_inventory_keeps_one_private_target():
-    inventory = tools.inventory({**fixture(), "ip": "192.0.2.10"})
+    inventory = tools.inventory({**fixture(), "ip": "192.0.2.10", "user":"ubuntu"})
     assert "192.0.2.10" in inventory
     assert "rybbit-fixture" in inventory
 
@@ -215,9 +215,9 @@ def test_access_log_records_the_visitor_not_the_proxy():
 
 def test_http3_policy_and_observed_hostname():
     from package_rybbit_blue import compute
-    rules=compute.requirements(fixture())['security']['ingress']
+    rules=compute.requirements(fixture())['ingress']
     assert [(r['protocol'],r['from_port']) for r in rules] == [('tcp',22),('tcp',80),('tcp',443),('udp',443)]
-    assert len(compute.requirements(fixture({'rybbit-http-sources':[]}))['security']['ingress'])==1
+    assert len(compute.requirements(fixture({'compute-http-sources':[]}))['ingress'])==1
     assert tools.ansible_data({**fixture(),'ip':'203.0.113.1','user':'ubuntu','name':'observed-node'})['compute-name']=='observed-node'
 
 async def test_acceptance_uses_observed_login_and_privilege_escalation(monkeypatch):

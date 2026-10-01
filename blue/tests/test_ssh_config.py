@@ -10,7 +10,7 @@ import re
 import pytest
 from blue.scaffold import render_template
 from conftest import fixture, keygen
-from package_rybbit_blue import ssh_config, tools, workflow
+from package_rybbit_blue import ssh_config, tools, workflow, access
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def test_alias_is_the_profile():
 def test_identity_file_keeps_the_tilde(home):
     # An expanded home directory would make the rendered block differ per
     # workstation; OpenSSH expands the tilde itself.
-    assert ssh_config.identity_file(fixture()) == "~/.ssh/rybbit-fixture"
+    assert ssh_config.identity_file(fixture()) == ""
     assert str(home) not in ssh_config.identity_file(fixture())
 
 
@@ -185,7 +185,7 @@ def test_placement_error_mentions_the_recovery(home):
 # §6 build determinism
 
 
-async def test_build_and_dry_run_never_read_the_config(monkeypatch):
+async def test_build_and_dry_run_never_read_the_config(monkeypatch, tmp_path):
     # The only readers are adopt_error and placement_error, and they must not
     # run on a rendered-only event. Making them raise proves nothing in the
     # build path calls them.
@@ -196,14 +196,14 @@ async def test_build_and_dry_run_never_read_the_config(monkeypatch):
     for opts in [{**fixture(), "blue/event": "build"},
                  {**keygen(), "blue/event": "build"},
                  {**fixture(), "blue/event": "create", "blue/dry-run": True}]:
-        assert (await workflow.start_step(opts, env={}))["blue/exit"] == 0
+        assert (await access.scoped(lambda: workflow.start_step({**opts, "workdir":str(tmp_path)}, env={})))["blue/exit"] == 0
 
 
 def test_the_local_play_renders_no_address():
     # Address, user and alias are run-time facts and travel as extra-vars, so
     # the rendered playbook carries none of them.
     data = tools.ansible_local_data({**fixture(), "ip": "203.0.113.7"})
-    assert data["ssh-config-identity-file"] == "~/.ssh/rybbit-fixture"
+    assert data["ssh-config-identity-file"] == ""
 
 
 def test_the_local_stage_renders_three_files():
@@ -219,7 +219,7 @@ def test_the_local_stage_renders_three_files():
 
 def test_keygen_mode_decides_the_identity_lines():
     assert tools.ansible_local_data(keygen())["ssh-keygen"] is True
-    assert tools.ansible_local_data(fixture())["ssh-keygen"] is False
+    assert tools.ansible_local_data(fixture())["ssh-keygen"] is True
 
 
 def _render_play(opts: dict) -> str:
@@ -230,17 +230,17 @@ def _render_play(opts: dict) -> str:
 def test_rendered_updater_uses_managed_identity_only(tmp_path):
     import json, os, subprocess, sys
     from blue.cli import load_yaml
-    for managed, opts in [(True,keygen()),(False,fixture())]:
+    for managed, opts in [(True,keygen()),(True,fixture())]:
         play=load_yaml(_render_play(opts))[0]
         assert play['vars']['colors_keygen'] is managed
         script=play['tasks'][0]['ansible.builtin.command']['argv'][2]
-        home=tmp_path/str(managed);home.mkdir()
-        payload={'host_alias':opts['profile'],'ssh_hosts':[{'name':opts['profile'],'ip':'203.0.113.7','user':'ubuntu'}],'block_state':'present','keygen':managed}
+        home=tmp_path/opts['profile'];home.mkdir()
+        payload={'host_alias':opts['profile'],'ssh_hosts':[{'name':opts['profile'],'ip':'203.0.113.7','user':'ubuntu','identity_file':'/tmp/public-identity.pub'}],'block_state':'present','keygen':managed}
         result=subprocess.run([sys.executable,'-c',script],input=json.dumps(payload),text=True,capture_output=True,env={**os.environ,'HOME':str(home)})
         assert result.returncode==0,result.stderr
         config=(home/'.ssh/config').read_text()
         assert 'User ubuntu' in config
-        assert ('IdentityFile ~/.ssh/'+opts['profile'] in config) is managed
+        assert ('IdentityFile "/tmp/public-identity.pub"' in config) is managed
         assert ('IdentitiesOnly yes' in config) is managed
 
 
@@ -258,6 +258,6 @@ def test_delete_removes_the_block_before_the_destroy():
     # a key removed early locks the operator out of a machine that still
     # exists.
     delete = {"blue/event": "delete"}
-    assert workflow.wire_fn("rybbit/dns", delete)[1:] == ("rybbit/ssh-config",)
-    assert workflow.wire_fn("rybbit/ssh-config", delete)[1:] == ("rybbit/infrastructure",)
-    assert workflow.wire_fn("rybbit/infrastructure", delete)[1:] == ()
+    assert workflow.wire_fn("rybbit/start", delete)[1:] == ("rybbit/ssh-config",)
+    assert workflow.wire_fn("rybbit/ssh-config", delete)[1:] == ("rybbit/ansible",)
+    assert workflow.wire_fn("rybbit/infrastructure", delete)[1:] == ("rybbit/registration-delete",)

@@ -60,10 +60,27 @@
     }
   },
   "output": {
+    "compute_identity": {
+      "value": {
+        "node_id": "rybbit-compute",
+        "profile": "rybbit-vultr-fixture",
+        "provider": "vultr",
+        "ssh_fingerprint": "SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk",
+        "ssh_resource_reference": "ssh-resource:build-placeholder",
+        "state_filename": "rybbit-node-0.tfstate"
+      }
+    },
     "params": {
       "value": {
-        "firewall_group_id": "${vultr_firewall_group.network.id}",
-        "provider": "vultr"
+        "ip": "${vultr_instance.node.main_ip}",
+        "name": "${vultr_instance.node.label}",
+        "node_id": "rybbit-compute",
+        "provider": "vultr",
+        "provider_id": "${vultr_instance.node.id}",
+        "ssh_key_id": "0",
+        "sudoer": "root",
+        "user": "root",
+        "vpc_ip": null
       }
     }
   },
@@ -73,7 +90,7 @@
   "resource": {
     "vultr_firewall_group": {
       "network": {
-        "description": "rybbit-vultr-fixture-firewall",
+        "description": "rybbit-vultr-fixture-rybbit-compute-firewall",
         "lifecycle": {
           "prevent_destroy": true
         }
@@ -88,6 +105,21 @@
         "protocol": "${each.value.protocol}",
         "subnet": "${each.value.subnet}",
         "subnet_size": "${each.value.subnet_size}"
+      }
+    },
+    "vultr_instance": {
+      "node": {
+        "firewall_group_id": "${vultr_firewall_group.network.id}",
+        "label": "rybbit-vultr-fixture-rybbit-compute",
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "os_id": 2284,
+        "plan": "vc2-2c-4gb",
+        "region": "ams",
+        "ssh_key_ids": [
+          "0"
+        ]
       }
     }
   },

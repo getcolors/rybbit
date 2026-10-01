@@ -2,7 +2,6 @@
   (:require [clojure.string :as str]
             [green.cli :as green-cli]
             [io.github.getcolors.rybbit.compute :as compute]
-            [io.github.getcolors.compute-ssh :as compute-ssh]
             [io.github.getcolors.once.validate :as once-validate]))
 
 (def profile-par (green-cli/par-name :profile))
@@ -31,7 +30,7 @@
   (when (not-empty (str (get env profile-par)))
     [(str profile-par " is set; profile must come from colors.yml only")]))
 
-(defn keygen? [opts] (try (= "managed" (:mode (compute-ssh/mode opts))) (catch Exception _ true)))
+(defn keygen? [_] true)
 
 (defn state-errors
   "Every problem with desired state at once: the missing keys (this package's
