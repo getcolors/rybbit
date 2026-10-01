@@ -105,8 +105,8 @@
         dest: /etc/rybbit-backup.env
         mode: "0600"
         content: |
-          RYBBIT_BACKUP_R2_ACCESS_KEY_ID={{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}
-          RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY={{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}
+          RYBBIT_BACKUP_R2_ACCESS_KEY_ID={{ lookup('env','RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}
+          RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY={{ lookup('env','RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}
       no_log: true
     - name: Install backup service
       ansible.builtin.copy:

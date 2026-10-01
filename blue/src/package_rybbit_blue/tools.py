@@ -193,9 +193,9 @@ def ansible_data(opts: dict) -> dict:
             "ssh-keygen": validate.keygen(opts), "ssh-identity-present": bool(opts.get("ssh-private-key-path")),
             "compute-name": opts.get("name") or fallback_params(opts)["name"],
             "rybbit-backup-access-key":
-                "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
+                "{{ lookup('env','RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
             "rybbit-backup-secret-key":
-                "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}"}
+                "{{ lookup('env','RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}"}
 
 
 def ansible_specs(opts: dict) -> list[dict]:
@@ -210,6 +210,15 @@ def ansible_specs(opts: dict) -> list[dict]:
             raw_spec(f"{dir}/inventory.json", inventory(data))]
 
 
+def backup_credential_env(opts: dict) -> dict[str, str]:
+    """Pass only backup credentials under child-local names the SDK preserves."""
+    if opts.get("blue/event") != "create":
+        return {}
+    return {"RYBBIT_BACKUP_R2_" + suffix: str(opts[key])
+            for suffix, key in (("ACCESS_KEY_ID", "rybbit-backup-r2-access-key-id"),
+                                ("SECRET_ACCESS_KEY", "rybbit-backup-r2-secret-access-key")) if opts.get(key) is not None}
+
+
 async def ansible_step(opts: dict) -> dict:
     if opts.get("colors-compute/already-destroyed"):
         return opts
@@ -220,7 +229,7 @@ async def ansible_step(opts: dict) -> dict:
         opts, ansible_specs(opts),
         dir=dir, inventory="inventory.json",
         playbooks={"create": "main.yml", "delete": "cleanup.yml"},
-        host_key_checking=True)
+        host_key_checking=True, env=backup_credential_env(opts))
 
 
 # --- Acceptance --------------------------------------------------------------

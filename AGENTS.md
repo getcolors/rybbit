@@ -104,6 +104,10 @@ with a temporary workdir and sanitized environment.
 
 Align compute, SDK and ONCE helper dependencies across manifests, locks and
 standalone launcher metadata. Preserve DNS R2 runtime credential mapping.
+The SDK strips `COLORS_PAR_*` from Ansible child environments. Forward only
+the two backup credentials through explicit `RYBBIT_BACKUP_R2_*` aliases on
+create; template lookups use those child aliases. Test the actual SDK process
+seam and keep values out of generated files.
 After a clean source commit is pushed, `cd green && bb pin` stamps all three
 Rybbit launcher pins. Then build actual copied payloads without LIB_ROOT
 overrides, commit the stamps, and push. Never invent a SHA or hand-edit the

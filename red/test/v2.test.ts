@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { runtime } from "red/runtime";
 import { readFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,7 +32,9 @@ test("v2 rejects legacy identities and missing API selection", () => {
 test("planning never starts an agent or writes authority", async () => {
   const dir = mkdtempSync(join(tmpdir(), "rybbit-plan-"));
   try {
-    let opts = await access.scoped(()=>access.resourceStep({ ...fixture(), workdir: dir }));
+    let opts = await access.scoped(() =>
+      access.resourceStep({ ...fixture(), workdir: dir }),
+    );
     opts = await access.agentStep(opts, () => {
       throw Error("agent must not run");
     });
@@ -105,17 +108,73 @@ test("public cache and scoped agent are explicit in Ansible and SSH", () => {
   expect(access.sshArgs(opts)).toContain("ForwardAgent=no");
 });
 
-test('profile lock excludes concurrent operations and releases after failure', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'rybbit-lock-'));
-  const opts = {...fixture(), workdir:dir};
+test("profile lock excludes concurrent operations and releases after failure", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "rybbit-lock-"));
+  const opts = { ...fixture(), workdir: dir };
   try {
-    await expect(access.scoped(async () => {
-      await access.lock(opts);
-      await expect(access.scoped(() => access.lock(opts))).rejects.toThrow('owns this profile');
-      throw Error('deliberate operation failure');
-    })).rejects.toThrow('deliberate operation failure');
+    await expect(
+      access.scoped(async () => {
+        await access.lock(opts);
+        await expect(access.scoped(() => access.lock(opts))).rejects.toThrow(
+          "owns this profile",
+        );
+        throw Error("deliberate operation failure");
+      }),
+    ).rejects.toThrow("deliberate operation failure");
     await access.scoped(() => access.lock(opts));
   } finally {
-    rmSync(dir, {recursive:true, force:true});
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("backup credentials survive SDK child scrubbing without entering generated files", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "rybbit-backup-env-"));
+  const original = runtime.exec;
+  const originalSecret = process.env.COLORS_PAR_UNRELATED_SECRET;
+  process.env.COLORS_PAR_UNRELATED_SECRET = "unrelated-secret";
+  const accessKey = "test-backup-access-key";
+  const secretKey = "test-backup-secret-key";
+  let invoked = false;
+  try {
+    runtime.exec = async (args, config) => {
+      expect(args[0]).toBe("ansible-playbook");
+      expect(config?.env?.RYBBIT_BACKUP_R2_ACCESS_KEY_ID).toBe(accessKey);
+      expect(config?.env?.RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY).toBe(secretKey);
+      expect(config?.env?.COLORS_PAR_UNRELATED_SECRET).toBeUndefined();
+      const opts: Opts = { ...fixture(), workdir: dir };
+      for (const spec of tools.ansibleSpecs(opts)) {
+        const content = readFileSync(spec.target, "utf8");
+        expect(content).not.toContain(accessKey);
+        expect(content).not.toContain(secretKey);
+      }
+      const main = readFileSync(
+        join(dir, String(opts.profile), "rybbit-ansible/main.yml"),
+        "utf8",
+      );
+      expect(main).toContain("lookup('env','RYBBIT_BACKUP_R2_ACCESS_KEY_ID')");
+      expect(main).toContain(
+        "lookup('env','RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY')",
+      );
+      invoked = true;
+      return { exit: 0, out: "", err: "" };
+    };
+    const result = await tools.ansibleStep({
+      ...fixture(),
+      workdir: dir,
+      "red/event": "create",
+      ip: "203.0.113.1",
+      user: "ubuntu",
+      name: "test-node",
+      "rybbit-backup-r2-access-key-id": accessKey,
+      "rybbit-backup-r2-secret-access-key": secretKey,
+    });
+    expect(result["red/exit"]).toBe(0);
+    expect(invoked).toBe(true);
+  } finally {
+    runtime.exec = original;
+    if (originalSecret === undefined)
+      delete process.env.COLORS_PAR_UNRELATED_SECRET;
+    else process.env.COLORS_PAR_UNRELATED_SECRET = originalSecret;
+    rmSync(dir, { recursive: true, force: true });
   }
 });

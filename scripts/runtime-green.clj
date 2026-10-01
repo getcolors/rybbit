@@ -2,7 +2,8 @@
 (require '[clj-yaml.core :as yaml] '[cheshire.core :as json]
          '[io.github.getcolors.rybbit.compute :as compute]
          '[io.github.getcolors.rybbit.access :as access]
-         '[io.github.getcolors.rybbit.workflow :as workflow])
+         '[io.github.getcolors.rybbit.workflow :as workflow]
+         '[io.github.getcolors.rybbit.tools :as tools])
 (def opts (assoc (yaml/parse-string (slurp (first *command-line-args*))) :workdir "/tmp/rybbit-runtime-parity" :green/event :build))
 (defn graph [event]
   (loop [step :rybbit/start path []]
@@ -12,7 +13,8 @@
   (compute/errors (if missing? state (assoc state (keyword (str "compute-" suffix)) value)))))
 (def req (compute/request opts))
 (def output
-  {:legacyReferences (mapv #(compute/errors (assoc opts % nil)) [:digitalocean-ssh-keys :vultr-ssh-keys :ssh-key-id])
+  {:backupChildEnv (into {} (for [event [:create :build :delete]] [event (tools/ansible-secret-env (assoc opts :green/event event :rybbit-backup-r2-access-key-id "dummy-access" :rybbit-backup-r2-secret-access-key "dummy-secret" :rybbit-ssh-passphrase "never-forward"))]))
+   :legacyReferences (mapv #(compute/errors (assoc opts % nil)) [:digitalocean-ssh-keys :vultr-ssh-keys :ssh-key-id])
    :failures (mapv #(get (compute/failed-result opts %) :green/err) [{} {:error nil} {:error {:message nil}} {:error {:message "refused" :stderr "provider detail"}}])
    :sourceErrors (into {} (for [suffix ["ssh-sources" "http-sources"]]
     [suffix (into {} (for [[label value] [["missing" nil] ["false" false] ["map" {}] ["null" nil]]]

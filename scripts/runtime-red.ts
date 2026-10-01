@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import * as compute from "../red/src/compute.ts";
 import * as access from "../red/src/access.ts";
+import * as tools from "../red/src/tools.ts";
 import * as workflow from "../red/src/workflow.ts";
 import type { Opts } from "red/workflow";
 const opts: Opts = {
@@ -28,6 +29,7 @@ function sourceErrors(suffix: string, value: unknown) {
 }
 const req = compute.request(opts);
 const output = {
+  backupChildEnv: Object.fromEntries(["create", "build", "delete"].map(event => [event, tools.ansibleSecretEnv({...opts, "red/event": event, "rybbit-backup-r2-access-key-id": "dummy-access", "rybbit-backup-r2-secret-access-key": "dummy-secret", "rybbit-ssh-passphrase": "never-forward"})])),
   legacyReferences: [
     "digitalocean-ssh-keys",
     "vultr-ssh-keys",

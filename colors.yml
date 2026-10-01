@@ -5,6 +5,7 @@ provider-compute: google
 provider-dns: cloudflare
 provider-backend: r2
 compute-prevent-destroy: true
+compute-require-existing-state: true
 compute-ssh-sources: ["0.0.0.0/0"]
 compute-http-sources: ["0.0.0.0/0"]
 

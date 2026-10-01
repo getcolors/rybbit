@@ -1,5 +1,7 @@
 (ns io.github.getcolors.rybbit.tools-test
   (:require [clojure.string :as str]
+            [clojure.java.shell :as sh]
+            [babashka.fs :as fs]
             [clojure.test :refer [deftest is testing]]
             [green.ansible :as ansible]
             [green.scaffold :as sc]
@@ -188,3 +190,27 @@
  (is (= [["tcp" 22] ["tcp" 80] ["tcp" 443] ["udp" 443]] (mapv (juxt :protocol :from_port) (get-in (compute/requirements (fixture)) [:ingress]))))
  (is (= 1 (count (get-in (compute/requirements (fixture :compute-http-sources [])) [:ingress]))))
  (is (= "observed-node" (:compute-name (tools/ansible-data (fixture :ip "203.0.113.7" :user "ubuntu" :name "observed-node"))))))
+
+(deftest backup-credentials-reach-only-the-ansible-child
+  (let [root (str (fs/create-temp-dir {:prefix "rybbit-ansible-env-"}))
+        captured (atom nil)
+        opts (fixture :green/event :create :workdir root :ip "203.0.113.7" :user "ubuntu" :name "demo"
+                      :ssh-private-key-path "/cache/identity.pub" :rybbit/agent-socket "/tmp/agent.sock"
+                      :rybbit-backup-r2-access-key-id "test-access-canary"
+                      :rybbit-backup-r2-secret-access-key "test-secret-canary"
+                      :rybbit-ssh-passphrase "test-passphrase-canary" :cloudflare-api-token "test-token-canary")]
+    (try
+      (with-redefs [sh/sh (fn [& args] (reset! captured (apply hash-map (drop-while #(not= :dir %) args))) {:exit 0 :out "" :err ""})]
+        (is (= 0 (:green/exit (tools/run-ansible-step opts)))))
+      (let [env (:env @captured)]
+        (is (= "test-access-canary" (get env "RYBBIT_BACKUP_R2_ACCESS_KEY_ID")))
+        (is (= "test-secret-canary" (get env "RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY")))
+        (is (not-any? #(str/starts-with? % "COLORS_PAR_") (keys env)))
+        (is (not-any? #{"test-passphrase-canary" "test-token-canary"} (vals env))))
+      (let [rendered (str/join "\n" (map #(slurp (str %)) (filter fs/regular-file? (fs/glob root "**"))))]
+        (doseq [secret ["test-access-canary" "test-secret-canary" "test-passphrase-canary" "test-token-canary"]]
+          (is (not (str/includes? rendered secret))))
+        (is (str/includes? rendered "lookup('env','RYBBIT_BACKUP_R2_ACCESS_KEY_ID')")))
+      (is (= {} (tools/ansible-secret-env (assoc opts :green/event :delete))))
+      (is (= {} (tools/ansible-secret-env (assoc opts :green/event :build))))
+      (finally (fs/delete-tree root)))))

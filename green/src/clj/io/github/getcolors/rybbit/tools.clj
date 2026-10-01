@@ -121,8 +121,8 @@
          :ip (or (:ip opts) (:ip (fallback-params opts)))
          :ssh-keygen (validate/keygen? opts) :ssh-identity-present (boolean (:ssh-private-key-path opts))
          :compute-name (or (:name opts) (:name (fallback-params opts)))
-         :rybbit-backup-access-key "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}"
-         :rybbit-backup-secret-key "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}"))
+         :rybbit-backup-access-key "{{ lookup('env','RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}"
+         :rybbit-backup-secret-key "{{ lookup('env','RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}"))
 (defn ansible-specs [opts]
   (let [dir (tool-dir opts ansible-tool) data (ansible-data opts)]
     [(spec (template "ansible" "ansible.cfg") (str dir "/ansible.cfg") data)
@@ -132,6 +132,16 @@
      (spec (template "ansible" "Caddyfile") (str dir "/Caddyfile") data)
      (spec (template "ansible" "backup") (str dir "/backup") data)
      (raw-spec (str dir "/inventory.json") (inventory data))]))
+(defn ansible-secret-env
+  "Forward only backup credentials under child-only names; the SDK scrubs COLORS_PAR_*."
+  [opts]
+  (if (= :create (:green/event opts))
+    (into {} (for [[key env] [[:rybbit-backup-r2-access-key-id "RYBBIT_BACKUP_R2_ACCESS_KEY_ID"]
+                              [:rybbit-backup-r2-secret-access-key "RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY"]]
+                   :let [value (get opts key)] :when (some? value)]
+               [env (str value)]))
+    {}))
+
 (defn run-ansible-step [opts]
   (let [dir (tool-dir opts ansible-tool)]
     (if (and (#{:create :delete} (:green/event opts)) (not (:green/dry-run opts)) (not (:ip opts)))
@@ -139,6 +149,7 @@
       (ansible/ansible-with-spec opts
         {:dir dir :inventory "inventory.json"
          :playbooks {:create "main.yml" :delete "cleanup.yml"}
+         :env (ansible-secret-env opts)
          :host-key-checking true}
         (ansible-specs opts)))))
 

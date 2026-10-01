@@ -230,3 +230,37 @@ async def test_acceptance_uses_observed_login_and_privilege_escalation(monkeypat
     assert await tools.ssh_out({'user':'ubuntu','ssh-private-key-path':'/tmp/key'}, '203.0.113.7', "docker ps --format '{{.Names}}'", 1000) == 'ok'
     assert seen['cmd'][-2] == 'ubuntu@203.0.113.7'
     assert seen['cmd'][-1].startswith('sudo -n -- sh -c ')
+
+
+async def test_backup_credentials_survive_sdk_scrubbing_without_other_secrets(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    calls=[]
+    async def execute(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return SimpleNamespace(exit=0, out='', err='')
+    monkeypatch.setattr(tools.runtime,'exec',execute)
+    monkeypatch.setenv('COLORS_PAR_RYBBIT_SSH_PASSPHRASE','must-not-forward')
+    opts={**fixture(), 'blue/event':'create','workdir':str(tmp_path),
+          'ip':'203.0.113.7','user':'ubuntu','name':'rybbit-fixture',
+          'ssh-private-key-path':'/tmp/public.pub','rybbit/agent-socket':'/tmp/agent.sock',
+          'rybbit-backup-r2-access-key-id':'test-access',
+          'rybbit-backup-r2-secret-access-key':'test-secret',
+          'cloudflare-api-token':'must-not-forward'}
+    result=await tools.ansible_step(opts)
+    assert result['blue/exit']==0
+    env=calls[0][1]['env']
+    assert env['RYBBIT_BACKUP_R2_ACCESS_KEY_ID']=='test-access'
+    assert env['RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY']=='test-secret'
+    assert env.get('COLORS_PAR_RYBBIT_SSH_PASSPHRASE') is None
+    assert 'must-not-forward' not in env.values()
+    for generated in tmp_path.rglob('*'):
+        if generated.is_file():
+            text=generated.read_text()
+            assert 'test-access' not in text and 'test-secret' not in text
+
+
+def test_backup_child_credentials_are_create_only():
+    credentials={'rybbit-backup-r2-access-key-id':'dummy-access','rybbit-backup-r2-secret-access-key':'dummy-secret'}
+    for event in ('build','delete','ssh'):
+        assert tools.backup_credential_env({**credentials,'blue/event':event})=={}
+    assert tools.backup_credential_env({'blue/event':'create','rybbit-backup-r2-access-key-id':None})=={}

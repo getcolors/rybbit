@@ -267,9 +267,9 @@ export function ansibleData(opts: Opts): Opts {
     "ssh-identity-present": Boolean(opts["ssh-private-key-path"]),
     "compute-name": opts.name ?? fallbackParams(opts).name,
     "rybbit-backup-access-key":
-      "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
+      "{{ lookup('env','RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
     "rybbit-backup-secret-key":
-      "{{ lookup('env','COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}",
+      "{{ lookup('env','RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}",
   };
 }
 
@@ -285,6 +285,23 @@ export function ansibleSpecs(opts: Opts): Spec[] {
     spec(template("ansible", "backup"), `${dir}/backup`, data),
     rawSpec(`${dir}/inventory.json`, inventory(data)),
   ];
+}
+
+// The SDK strips COLORS_PAR_* from children; expose only the two backup
+// credentials under child-only aliases, never in generated files.
+export function ansibleSecretEnv(opts: Opts): Record<string, string> {
+  if (opts["red/event"] !== "create") return {};
+  return Object.fromEntries(
+    [
+      ["rybbit-backup-r2-access-key-id", "RYBBIT_BACKUP_R2_ACCESS_KEY_ID"],
+      [
+        "rybbit-backup-r2-secret-access-key",
+        "RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY",
+      ],
+    ]
+      .filter(([key]) => opts[key!] !== null && opts[key!] !== undefined)
+      .map(([key, env]) => [env!, String(opts[key!])]),
+  );
 }
 
 // `runner` is dependency-injected the way green's tests use with-redefs on
@@ -312,6 +329,7 @@ export async function ansibleStep(
       inventory: "inventory.json",
       playbooks: { create: "main.yml", delete: "cleanup.yml" },
       hostKeyChecking: true,
+      env: ansibleSecretEnv(opts),
     },
     ansibleSpecs(opts),
   );

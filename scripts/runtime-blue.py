@@ -2,7 +2,7 @@
 import json
 import sys
 import yaml
-from package_rybbit_blue import compute, access, workflow
+from package_rybbit_blue import compute, access, workflow, tools
 with open(sys.argv[1]) as handle:
     opts = {**yaml.safe_load(handle), 'workdir': '/tmp/rybbit-runtime-parity', 'blue/event': 'build'}
 
@@ -24,6 +24,7 @@ def source_errors(suffix, value, missing=False):
 
 req = compute.request(opts)
 output = {
+    'backupChildEnv': {event: tools.backup_credential_env({**opts, 'blue/event': event, 'rybbit-backup-r2-access-key-id': 'dummy-access', 'rybbit-backup-r2-secret-access-key': 'dummy-secret', 'rybbit-ssh-passphrase': 'never-forward'}) for event in ('create', 'build', 'delete')},
     'legacyReferences': [compute.errors({**opts, key: None}) for key in ('digitalocean-ssh-keys','vultr-ssh-keys','ssh-key-id')],
     'failures': [compute.failure(opts, result)['blue/err'] for result in [{}, {'error': None}, {'error': {'message': None}}, {'error': {'message': 'refused', 'stderr': 'provider detail'}}]],
     'sourceErrors': {suffix: {name: source_errors(suffix, value, name == 'missing') for name, value in [('missing', None), ('false', False), ('map', {}), ('null', None)]} for suffix in ('ssh-sources', 'http-sources')},
