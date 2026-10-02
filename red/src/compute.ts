@@ -22,6 +22,7 @@ import {
   compute_node,
   resolve_connection,
 } from "colors-compute-red";
+import { resolveWithLogin } from "./reauth.ts";
 export const nodeId = "rybbit-compute";
 export const placeholderResource = {
   status: "ready",
@@ -207,7 +208,7 @@ export function fallbackParams(opts: Opts): Opts {
 export function failedResult(opts: Opts, result: any): Opts {
   return {
     ...opts,
-    "red/exit": 1,
+    "red/exit": result["rybbit/login-exit"] ?? 1,
     "red/err":
       (result.error?.message ?? "compute lifecycle refused") +
       (result.error?.stderr ? "\n" + result.error.stderr : ""),
@@ -313,7 +314,7 @@ export async function load(
   env: Record<string, string | undefined> = process.env,
 ): Promise<Opts> {
   const result: any = ["ssh", "describe"].includes(String(opts["red/event"]))
-    ? await resolve_connection(libraryOptions(opts), request(opts), env)
+    ? await resolveWithLogin(opts, env, () => resolve_connection(libraryOptions(opts), request(opts), env))
     : await compute_node(libraryOptions(opts), request(opts), "inspect", env);
   if (result.status === "destroyed" && opts["red/event"] === "delete")
     return { ...opts, "red/exit": 0, "colors-compute/already-destroyed": true };

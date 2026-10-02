@@ -2,6 +2,7 @@
   "Rybbit's stable v2 singleton and application parameter adapter."
   (:require [cheshire.core :as json] [clojure.java.io :as io] [clojure.string :as str]
             [green.cli :as cli]
+            [io.github.getcolors.rybbit.reauth :as reauth]
             [io.github.getcolors.compute :as compute]
             [io.github.getcolors.compute-node :as node]
             [io.github.getcolors.compute-local :as local]
@@ -84,7 +85,7 @@
   (let [message (or (get-in result [:error :message]) "compute lifecycle refused")
         stderr (get-in result [:error :stderr])]
     ;; The library sanitizes provider diagnostics before returning its result.
-    (assoc opts :green/exit 1 :green/err (str message (when (seq stderr) (str "\n" stderr))))))
+    (assoc opts :green/exit (or (:rybbit/login-exit result) 1) :green/err (str message (when (seq stderr) (str "\n" stderr))))))
 (defn adopt [opts result]
   (let [data (params opts result)]
     (assoc (merge opts data) :rybbit/compute-params data :colors-compute/node (:params result) :green/exit 0)))
@@ -119,7 +120,7 @@
   ([opts] (load-inventory opts (System/getenv)))
   ([opts env]
    (let [result (if (#{:describe :ssh} (:green/event opts))
-                  (node/resolve-connection! (library-options opts) (request opts) env)
+                  (reauth/resolve-with-login opts env #(node/resolve-connection! (library-options opts) (request opts) env))
                   (node/compute-node! (library-options opts) (request opts) "inspect" env))]
      (case (:status result)
        "ready" (adopt opts result)

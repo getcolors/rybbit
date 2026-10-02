@@ -94,6 +94,9 @@ export function stateErrors(opts: Opts): string[] {
   if (!["s3", "r2"].includes(String(opts["provider-backend"]))) {
     errors.push(":provider-backend must be s3 or r2");
   }
+  if ("rybbit-ssh-login-browser" in opts && typeof opts["rybbit-ssh-login-browser"] !== "boolean") {
+    errors.push(":rybbit-ssh-login-browser must be true or false");
+  }
   if (typeof opts["compute-prevent-destroy"] !== "boolean") {
     errors.push(":compute-prevent-destroy must be true or false");
   }

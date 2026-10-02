@@ -5,7 +5,7 @@
     "": {
       "name": "package-rybbit-red-dev",
       "dependencies": {
-        "colors-compute-red": "github:getcolors/colors-compute#59acb202029ea1061c2c68d0a6ad2bb509eccad4",
+        "colors-compute-red": "github:getcolors/colors-compute#bc8658ded0e78bd7b212e3e89a2d87184fa64561",
         "package-once-red": "github:getcolors/once#a41c43d244cb57da25b2a0c71f19b4e42a101bea",
         "red": "github:getcolors/red#f28d4398cda1a2f6ca074011b924ed0e9da0ce4a",
       },
@@ -62,7 +62,7 @@
 
     "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "colors-compute-red": ["colors-compute-red@github:getcolors/colors-compute#59acb20", {}, "getcolors-colors-compute-59acb20", "sha512-ICRwsBgJi5jjxEroPMBZ4EGLyUiq7KUFGDgkxaEaI2ezWcLKxCqB/Ei17T7MytxaR0ZHKbthUR5/H2rZPJz5vg=="],
+    "colors-compute-red": ["colors-compute-red@github:getcolors/colors-compute#bc8658d", {}, "getcolors-colors-compute-bc8658d", "sha512-o89xbw85Af1AsOZrp8bu+7H+kgciuTAJX/GcFnS00ICLOYyoBkMAdyb5/YQIl1EIPkw5PMyaXlSghYHW5A71ZQ=="],
 
     "package-once-red": ["package-once-red@github:getcolors/once#a41c43d", { "peerDependencies": { "colors-compute-red": "*", "red": "*" }, "optionalPeers": ["colors-compute-red", "red"] }, "getcolors-once-a41c43d", "sha512-1sTfphf7nC1MV6JKJx4V4hDwz5R4ZnutI7mR6JR5CpydMowu1FXWatB9Ft2J7x0b/Yg9PilExhMcwtoHeah5xA=="],
 

@@ -16,7 +16,7 @@ This version requires `compute-api-version: 2` and creates fresh deployments
 only. Existing deployments keep their pinned launchers, configuration, keys and
 state. There is no migration, adoption or compatibility layer.
 
-The pinned [colors-compute v2 contract](https://github.com/getcolors/colors-compute/blob/59acb202029ea1061c2c68d0a6ad2bb509eccad4/contracts/node.md)
+The pinned [colors-compute v2 contract](https://github.com/getcolors/colors-compute/blob/bc8658ded0e78bd7b212e3e89a2d87184fa64561/contracts/node.md)
 owns provider validation, templates, backend access and guarded node operations.
 Rybbit owns a singleton `rybbit-compute`, workflow ordering, a profile lock, and
 application convergence. Provider support comes from that library pin; package
@@ -116,3 +116,34 @@ cd blue && uv run pytest                  # Python implementation
 ## License
 
 MIT License. Copyright (c) 2026 getcolors.
+
+## Google SSH reauthentication
+
+`./green ssh` (and the Red/Blue launchers) checks the current machine address
+before opening its scoped SSH agent. When Google reports an expired user session,
+an interactive terminal displays the reason and runs
+`gcloud auth application-default login`, showing Google's browser link and login
+progress directly in that terminal. A successful login retries the address lookup
+once, then connects. Cancellation stops the operation; repeated authentication
+failure never loops or falls back to a cached address.
+
+For a terminal without a local browser, set `rybbit-ssh-login-browser: false` in
+`colors.yml`, or run:
+
+```sh
+COLORS_PAR_RYBBIT_SSH_LOGIN_BROWSER=false ./green ssh
+```
+
+This uses `gcloud auth application-default login --no-launch-browser`; open its
+link and paste the verification code into the terminal. Google sign-in still
+requires user interaction. No login runs during build/dry-run or create/delete.
+
+Automatic recovery requires local `authorized_user` ADC and no explicit Google
+credential overrides. Service accounts, federation, overridden credentials, and
+noninteractive sessions receive recovery instructions instead. The workflow does
+not print tokens or capture the login interaction in its result. Google session
+policies still apply; this handles expiry rather than extending its lifetime.
+
+The pinned `colors-compute` dependency supplies the structured reauthentication
+hint. Existing deployments keep their installed launcher pins until explicitly
+updated; publishing this package does not refresh those copies.

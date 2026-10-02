@@ -1,4 +1,5 @@
 """Rybbit owns one greenfield v2 node and its encrypted SSH authority."""
+from . import reauth
 import json
 import os
 import stat
@@ -104,7 +105,7 @@ def fallback_params(opts):
 
 def failure(opts, result):
     error = result.get('error') or {}
-    return {**opts, 'blue/exit': 1, 'blue/err': (error.get('message') or 'compute lifecycle refused') + ('\n' + error['stderr'] if error.get('stderr') else '')}
+    return {**opts, 'blue/exit': result.get('rybbit/login-exit', 1), 'blue/err': (error.get('message') or 'compute lifecycle refused') + ('\n' + error['stderr'] if error.get('stderr') else '')}
 
 
 def params(opts, result):
@@ -132,7 +133,7 @@ async def step(opts):
 
 
 async def load(opts, env=None):
-    result = await resolve_connection(library_options(opts), request(opts), env) if opts.get('blue/event') in ('ssh', 'describe') else await compute_node(library_options(opts), request(opts), 'inspect', env)
+    result = await reauth.resolve_with_login(opts, env if env is not None else dict(os.environ), lambda: resolve_connection(library_options(opts), request(opts), env)) if opts.get('blue/event') in ('ssh', 'describe') else await compute_node(library_options(opts), request(opts), 'inspect', env)
     if result['status'] == 'destroyed' and opts.get('blue/event') == 'delete':
         return {**opts, 'blue/exit': 0, 'colors-compute/already-destroyed': True}
     if result['status'] == 'destroyed':

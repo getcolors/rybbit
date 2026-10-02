@@ -5,6 +5,8 @@
            [io.github.getcolors.rybbit.ssh-config :as ssh-config]
            [io.github.getcolors.rybbit.workflow :as workflow]
            [io.github.getcolors.rybbit.access :as access]
+           [io.github.getcolors.rybbit.reauth :as reauth]
+           [green.process :as process]
            [io.github.getcolors.rybbit.compute :as compute]
            [io.github.getcolors.compute-node :as node]
            [io.github.getcolors.rybbit.validate :as validate]
@@ -81,3 +83,26 @@
   (is (= "compute lifecycle refused" (:green/err (compute/failed-result {} result)))))
  (is (= "provider refused\nrequest ID abc" (:green/err (compute/failed-result {} {:error {:message "provider refused" :stderr "request ID abc"}}))))
  (is (= "provider refused" (:green/err (compute/failed-result {} {:error {:message "provider refused" :stderr ""}})))))
+
+(deftest ssh-login-finishes-before-agent-unlock
+  (doseq [exit [0 130]]
+    (let [calls (atom []) attempts (atom 0)]
+      (with-redefs [validate/state-errors (constantly []) access/lock! (constantly nil)
+                    access/resource-step #(assoc % :rybbit/ssh-resource compute/placeholder-resource)
+                    access/registration-step identity
+                    reauth/local-user-adc? (constantly true) reauth/interactive? (constantly true)
+                    reauth/announce (constantly nil)
+                    process/run-inherit (fn [& _] (swap! calls conj :login) {:exit exit})
+                    node/resolve-connection! (fn [& _]
+                      (swap! calls conj :resolve)
+                      (if (= 1 (swap! attempts inc))
+                        {:status "error" :error {:auth_reason "google_reauth_required" :stage "plan"
+                                                :command ["tofu" "plan"] :infrastructure_changes "none"}}
+                        {:status "ready" :params {:ip "203.0.113.7" :user "ubuntu"}}))
+                    access/agent-step #(do (swap! calls conj :agent) %)]
+        (let [result (workflow/start-step (fixture :green/event :ssh :provider-compute "google") {})]
+          (is (= exit (:green/exit result)))
+          (is (= (if (zero? exit) [:resolve :login :resolve :agent] [:resolve :login]) @calls))
+          (when (zero? exit)
+            (is (= "203.0.113.7" (:ip result)))
+            (is (= "ubuntu" (:user result)))))))))

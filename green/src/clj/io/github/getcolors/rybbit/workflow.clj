@@ -4,6 +4,7 @@
            [green.dry-run :as dry-run] [green.tofu :as tofu]
            [io.github.getcolors.rybbit.compute :as compute]
            [io.github.getcolors.rybbit.access :as access]
+           [io.github.getcolors.rybbit.reauth :as reauth]
            [io.github.getcolors.rybbit.ssh-config :as ssh-config]
            [io.github.getcolors.rybbit.tools :as tools]
            [io.github.getcolors.rybbit.validate :as validate]))
@@ -13,7 +14,7 @@
  ([opts] (start-step opts (System/getenv)))
  ([opts env]
   (lifecycle/preflight opts
-   {:defaults defaults :overlay cli/read-pars
+   {:defaults defaults :overlay reauth/read-pars
     :validators [(fn [_ env _] (validate/env-errors env))
                  (fn [o _ _] (validate/state-errors o))
                  (fn [o _ c] (when (and (:real? c) (#{:create :delete} (:event c))) (validate/secret-errors o)))

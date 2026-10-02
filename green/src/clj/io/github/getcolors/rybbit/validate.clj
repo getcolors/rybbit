@@ -44,6 +44,8 @@
     (for [k required
           :when (missing? (get opts k))]
       (str k " is required"))
+    (when (and (contains? opts :rybbit-ssh-login-browser) (not (boolean? (:rybbit-ssh-login-browser opts))))
+      [":rybbit-ssh-login-browser must be true or false"])
     (when-not (= "cloudflare" (:provider-dns opts))
       [":provider-dns must be cloudflare"])
     (when-not (contains? #{"s3" "r2"} (:provider-backend opts))

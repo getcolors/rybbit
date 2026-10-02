@@ -9,7 +9,7 @@
   "dependencies": {
     "package-once-red": "github:getcolors/once#a41c43d244cb57da25b2a0c71f19b4e42a101bea",
     "red": "github:getcolors/red#f28d4398cda1a2f6ca074011b924ed0e9da0ce4a",
-    "colors-compute-red": "github:getcolors/colors-compute#59acb202029ea1061c2c68d0a6ad2bb509eccad4"
+    "colors-compute-red": "github:getcolors/colors-compute#bc8658ded0e78bd7b212e3e89a2d87184fa64561"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",

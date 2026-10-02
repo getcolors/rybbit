@@ -1,4 +1,4 @@
-import { readPars } from "red/cli";
+import { readLoginPars } from "./reauth.ts";
 import * as dryRun from "red/dry-run";
 import { preflight } from "red/lifecycle";
 import * as progress from "red/progress";
@@ -30,7 +30,7 @@ export async function startStep(
     opts,
     {
       defaults,
-      overlay: readPars,
+      overlay: readLoginPars,
       validators: [
         (_o, e) => validate.envErrors(e),
         (o) => validate.stateErrors(o),

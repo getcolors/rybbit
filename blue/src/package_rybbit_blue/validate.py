@@ -72,6 +72,8 @@ def state_errors(opts: dict) -> list[str]:
         errors.append(":provider-dns must be cloudflare")
     if opts.get("provider-backend") not in ("s3", "r2"):
         errors.append(":provider-backend must be s3 or r2")
+    if "rybbit-ssh-login-browser" in opts and not isinstance(opts["rybbit-ssh-login-browser"], bool):
+        errors.append(":rybbit-ssh-login-browser must be true or false")
     if not isinstance(opts.get("compute-prevent-destroy"), bool):
         errors.append(":compute-prevent-destroy must be true or false")
     if not (missing(opts.get("rybbit-host"))

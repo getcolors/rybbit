@@ -1,6 +1,6 @@
 """Rybbit v2 lifecycle, with profile serialization and scoped SSH access."""
 from blue import dry_run, progress, tofu
-from blue.cli import read_pars
+from .reauth import read_login_pars
 from blue.lifecycle import preflight
 from blue.workflow import advice_add, failed, workflow
 from . import access, compute, ssh_config, tools, validate
@@ -36,7 +36,7 @@ async def start_step(original, env=None):
             if event == 'delete' and override_ip:
                 opts = {**opts, 'ip': override_ip}
         return await access.agent_step(opts)
-    return await preflight(original, defaults=DEFAULTS, overlay=read_pars, env=env,
+    return await preflight(original, defaults=DEFAULTS, overlay=read_login_pars, env=env,
         validators=[lambda _o,e,_c: validate.env_errors(e), lambda o,_e,_c: validate.state_errors(o),
                     lambda o,_e,c: validate.secret_errors(o) if c['real'] and c['event'] in ('create','delete') else [],
                     lambda o,_e,c: ['compute destruction is protected; set COLORS_PAR_COMPUTE_PREVENT_DESTROY=false to delete'] if c['real'] and c['event']=='delete' and o.get('compute-prevent-destroy') else []], after_validate=after)
