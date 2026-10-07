@@ -22,7 +22,7 @@
   (str "# dependencies = [\"package-rybbit-blue\", \"blue\", \"package-once-blue\", \"colors-compute-blue\"]\n"
        "#\n"
        "# [tool.uv.sources]\n"
-       "# colors-compute-blue = { git = \"https://github.com/getcolors/colors-compute.git\", rev = \"4f3ea45799f6b8f1a22b1347e7e4233d0853036f\", subdirectory = \"blue\" }\n"
+       "# colors-compute-blue = { git = \"https://github.com/getcolors/colors-compute.git\", rev = \"ed39df40ac0bd30f4014c263ec70ae7d09ab3984\", subdirectory = \"blue\" }\n"
        "# package-rybbit-blue = { git = \"https://github.com/getcolors/rybbit.git\", rev = \"" sha "\", subdirectory = \"blue\" }\n"
        "# blue = { git = \"https://github.com/getcolors/blue.git\", rev = \"784018bb586882efbd91affd42139582a40ea1d1\" }\n"
        "# package-once-blue = { git = \"https://github.com/getcolors/once.git\", subdirectory = \"blue\", rev = \"c9920f561d65c216697f9f6899107641c63a5068\" }\n"
