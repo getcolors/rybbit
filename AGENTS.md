@@ -56,11 +56,17 @@ no migration, adoption or compatibility tooling is supplied.
 
 Read `../workspace/standards/compute-provider.md`, `ssh-keypair.md` and
 `ssh-config.md`, prioritizing their v2 sections over older contracts. The
-library pin is `bc8658ded0e78bd7b212e3e89a2d87184fa64561`. The node is
+library pin is `4f3ea45799f6b8f1a22b1347e7e4233d0853036f`. The node is
 `rybbit-compute`, its state is `<profile>/rybbit-node-0.tfstate`, and separate
 public-key registration uses `<profile>/rybbit-ssh-registration.tfstate` where
 required by the library registry. DNS retains `<profile>/rybbit-dns.tfstate`.
 R2 and S3 remain the supported package backends.
+
+Fresh create inspects SSH authority first. Only confirmed missing authority with
+`compute-require-existing-state` disabled may call the library
+`ssh-verify-absent!` / `ssh_verify_absent` helper with the node and any registration
+descriptors. Pass `verified_absent: true` only for a verified result; never use
+local rendered files as evidence of remote absence. Build/dry-run skip the helper.
 
 The library owns provider templates, public identity validation, independent
 resource lifecycle, and backend access. Rybbit owns graph ordering and a local

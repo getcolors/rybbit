@@ -16,7 +16,7 @@ This version requires `compute-api-version: 2` and creates fresh deployments
 only. Existing deployments keep their pinned launchers, configuration, keys and
 state. There is no migration, adoption or compatibility layer.
 
-The pinned [colors-compute v2 contract](https://github.com/getcolors/colors-compute/blob/bc8658ded0e78bd7b212e3e89a2d87184fa64561/contracts/node.md)
+The pinned [colors-compute v2 contract](https://github.com/getcolors/colors-compute/blob/4f3ea45799f6b8f1a22b1347e7e4233d0853036f/contracts/node.md)
 owns provider validation, templates, backend access and guarded node operations.
 Rybbit owns a singleton `rybbit-compute`, workflow ordering, a profile lock, and
 application convergence. Provider support comes from that library pin; package

@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 
 [manifest]
@@ -35,7 +35,7 @@ wheels = [
 [[package]]
 name = "colors-compute-blue"
 version = "0.1.0"
-source = { git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=bc8658ded0e78bd7b212e3e89a2d87184fa64561#bc8658ded0e78bd7b212e3e89a2d87184fa64561" }
+source = { git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=4f3ea45799f6b8f1a22b1347e7e4233d0853036f#4f3ea45799f6b8f1a22b1347e7e4233d0853036f" }
 
 [[package]]
 name = "iniconfig"
@@ -49,7 +49,7 @@ wheels = [
 [[package]]
 name = "package-once-blue"
 version = "0.1.0"
-source = { git = "https://github.com/getcolors/once.git?subdirectory=blue&rev=a41c43d244cb57da25b2a0c71f19b4e42a101bea#a41c43d244cb57da25b2a0c71f19b4e42a101bea" }
+source = { git = "https://github.com/getcolors/once.git?subdirectory=blue&rev=c9920f561d65c216697f9f6899107641c63a5068#c9920f561d65c216697f9f6899107641c63a5068" }
 dependencies = [
     { name = "blue" },
     { name = "colors-compute-blue" },
@@ -74,8 +74,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "blue", git = "https://github.com/getcolors/blue.git?rev=784018bb586882efbd91affd42139582a40ea1d1" },
-    { name = "colors-compute-blue", git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=bc8658ded0e78bd7b212e3e89a2d87184fa64561" },
-    { name = "package-once-blue", git = "https://github.com/getcolors/once.git?subdirectory=blue&rev=a41c43d244cb57da25b2a0c71f19b4e42a101bea" },
+    { name = "colors-compute-blue", git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=4f3ea45799f6b8f1a22b1347e7e4233d0853036f" },
+    { name = "package-once-blue", git = "https://github.com/getcolors/once.git?subdirectory=blue&rev=c9920f561d65c216697f9f6899107641c63a5068" },
 ]
 
 [package.metadata.requires-dev]

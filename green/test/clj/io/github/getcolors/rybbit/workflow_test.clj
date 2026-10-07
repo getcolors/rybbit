@@ -106,3 +106,73 @@
           (when (zero? exit)
             (is (= "203.0.113.7" (:ip result)))
             (is (= "ubuntu" (:user result)))))))))
+
+(deftest fresh-authority-verifies-all-consumers-before-creation
+  (doseq [provider ["google" "vultr"]]
+    (let [calls (atom []) opts (fixture :green/event :create :provider-compute provider)]
+      (with-redefs [library-ssh/ssh-resource!
+                    (fn [_ request operation _]
+                      (swap! calls conj [operation request])
+                      (if (= "inspect" operation)
+                        {:status "error" :error {:code "ssh_authority_missing"}}
+                        compute/placeholder-resource))
+                    library-ssh/ssh-verify-absent!
+                    (fn [_ request _]
+                      (swap! calls conj ["verify" request])
+                      {:status "verified" :verified_absent true})]
+        (is (= 0 (:green/exit (access/resource-step opts))))
+        (is (= ["inspect" "verify" "create"] (mapv first @calls)))
+        (is (= [{:node_id "rybbit-compute" :state_filename "rybbit-node-0.tfstate"}]
+               (get-in @calls [1 1 :consumers])))
+        (is (= (if (= provider "vultr")
+                 [{:name "machine-access" :state_filename "rybbit-ssh-registration.tfstate"}] [])
+               (get-in @calls [1 1 :registrations])))
+        (is (true? (get-in @calls [2 1 :verified_absent])))
+        (is (not (contains? (get-in @calls [0 1]) :verified_absent)))))))
+
+(deftest existing-authority-reused-without-verification
+  (let [calls (atom [])]
+    (with-redefs [library-ssh/ssh-resource! (fn [_ _ operation _]
+                                            (swap! calls conj operation) compute/placeholder-resource)
+                  library-ssh/ssh-verify-absent! (fn [& _] (throw (ex-info "must reuse authority" {})))]
+      (is (= compute/placeholder-resource
+             (:rybbit/ssh-resource (access/resource-step (fixture :green/event :create)))))
+      (is (= ["inspect"] @calls)))))
+
+(deftest authority-errors-and-existing-state-guard-never-create
+  (doseq [[event guard result] [[:create true {:status "error" :error {:code "ssh_authority_missing"}}]
+                                [:delete false {:status "error" :error {:code "ssh_authority_missing"}}]
+                                [:ssh false {:status "error" :error {:code "ssh_authority_missing"}}]
+                                [:create false {:status "error" :error {:code "ssh_backend_unavailable"}}]
+                                [:create false {:status "error" :error {:code "ssh_authority_invalid"}}]]]
+    (let [calls (atom [])]
+      (with-redefs [library-ssh/ssh-resource! (fn [_ _ operation _] (swap! calls conj operation) result)
+                    library-ssh/ssh-verify-absent! (fn [& _] (throw (ex-info "must not verify" {})))]
+        (is (= 1 (:green/exit (access/resource-step
+                               (fixture :green/event event :compute-require-existing-state guard)))))
+        (is (= ["inspect"] @calls))))))
+
+(deftest uncertain-or-conflicting-consumer-verification-never-creates
+  (doseq [verification [{:status "error" :error {:message "existing consumer"}}
+                        {:status "error" :error {:message "provider query failed"}}
+                        {:status "error" :error {:message "state query failed"}}
+                        {:status "verified" :verified_absent false}
+                        {:status "verified" :verified_absent "true"}
+                        {:status "verified"}
+                        {:status "ready" :verified_absent true}
+                        {}]]
+    (let [calls (atom [])]
+      (with-redefs [library-ssh/ssh-resource!
+                    (fn [_ _ operation _]
+                      (swap! calls conj operation)
+                      {:status "error" :error {:code "ssh_authority_missing"}})
+                    library-ssh/ssh-verify-absent! (fn [& _] verification)]
+        (is (= 1 (:green/exit (access/resource-step (fixture :green/event :create)))))
+        (is (= ["inspect"] @calls))))))
+
+(deftest planning-does-not-query-authority-or-consumers
+  (with-redefs [library-ssh/ssh-resource! (fn [& _] (throw (ex-info "authority query" {})))
+                library-ssh/ssh-verify-absent! (fn [& _] (throw (ex-info "consumer query" {})))]
+    (doseq [opts [(fixture :green/event :build)
+                  (fixture :green/event :create :green/dry-run true)]]
+      (is (= compute/placeholder-resource (:rybbit/ssh-resource (access/resource-step opts)))))))

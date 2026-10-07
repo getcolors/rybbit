@@ -25,11 +25,29 @@
         (when-not (.tryLock channel) (throw (ex-info "another Rybbit operation owns this profile" {})))
         (*register!* :resource #(.close channel))
         (catch Exception e (.close channel) (throw e))))))
+(defn absence-request [opts]
+  {:workdir (machine/sdk-workdir opts)
+   :consumers [{:node_id machine/node-id :state_filename machine/state-filename}]
+   :registrations (if (machine/registration? opts)
+                    [{:name "machine-access" :state_filename "rybbit-ssh-registration.tfstate"}]
+                    [])})
 (defn resource-step [opts]
-  (let [existing? (and (not (machine/planning? opts)) (.exists (io/file (machine/sdk-workdir opts) (:profile opts) machine/node-id "compute.tf.json")))
-        operation (if (or existing? (:compute-require-existing-state opts) (not= :create (:green/event opts))) "inspect" "create")
-        result (if (machine/planning? opts) machine/placeholder-resource
-                   (ssh/ssh-resource! (machine/library-options opts) (machine/ssh-request opts) operation (System/getenv)))]
+  (let [options (machine/library-options opts)
+        request (machine/ssh-request opts)
+        env (System/getenv)
+        inspected (if (machine/planning? opts) machine/placeholder-resource
+                      (ssh/ssh-resource! options request "inspect" env))
+        result (if (and (= :create (:green/event opts))
+                        (not (machine/planning? opts))
+                        (not (:compute-require-existing-state opts))
+                        (= "error" (:status inspected))
+                        (= "ssh_authority_missing" (get-in inspected [:error :code])))
+                 (let [verification (ssh/ssh-verify-absent! options (absence-request opts) env)]
+                   (if (and (= "verified" (:status verification)) (true? (:verified_absent verification)))
+                     (ssh/ssh-resource! options (assoc request :verified_absent true) "create" env)
+                     (if (= "error" (:status verification)) verification
+                         {:status "error" :error {:message "SSH consumer absence was not verified"}})))
+                 inspected)]
     (if (= "ready" (:status result)) (assoc opts :rybbit/ssh-resource result :green/exit 0)
         (machine/failed-result opts result))))
 (defn registration-step [opts]

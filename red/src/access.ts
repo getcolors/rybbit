@@ -1,12 +1,12 @@
 /** Runtime capabilities remain scoped, never serialized in workflow opts. */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { withScope, type RegisterFinalizer } from "red/scope";
 import { runtime } from "red/runtime";
 import type { Opts } from "red/workflow";
 import {
   ssh_resource,
+  ssh_verify_absent,
   start_agent,
   compute_registration,
   registration_plan,
@@ -59,6 +59,7 @@ export async function lock(opts: Opts) {
 export async function resourceStep(
   opts: Opts,
   run = ssh_resource,
+  verify = ssh_verify_absent,
 ): Promise<Opts> {
   if (!opts["red/dry-run"]) await lock(opts);
   if (machine.planning(opts))
@@ -67,28 +68,30 @@ export async function resourceStep(
       "rybbit/ssh-resource": machine.placeholderResource,
       "red/exit": 0,
     };
-  const existing = existsSync(
-    join(
-      machine.sdkWorkdir(opts),
-      String(opts.profile),
-      machine.nodeId,
-      "compute.tf.json",
-    ),
-  );
-  const operation =
-    existing ||
-    opts["compute-require-existing-state"] ||
-    !["build", "create"].includes(String(opts["red/event"]))
-      ? "inspect"
-      : "create";
-  const result = machine.planning(opts)
-    ? machine.placeholderResource
-    : await run(
-        machine.libraryOptions(opts),
-        machine.sshRequest(opts),
-        operation,
-        process.env,
-      );
+  const options = machine.libraryOptions(opts);
+  const request = machine.sshRequest(opts);
+  let result = await run(options, request, "inspect", process.env);
+  if (
+    result.status === "error" &&
+    result.error?.code === "ssh_authority_missing" &&
+    opts["red/event"] === "create" &&
+    !opts["compute-require-existing-state"]
+  ) {
+    const verification = await verify(
+      options,
+      {
+        workdir: machine.sdkWorkdir(opts),
+        consumers: [{ node_id: machine.nodeId, state_filename: "rybbit-node-0.tfstate" }],
+        registrations: machine.registration(opts)
+          ? [{ name: "machine-access", state_filename: "rybbit-ssh-registration.tfstate" }]
+          : [],
+      },
+      process.env,
+    );
+    if (verification.status !== "verified" || verification.verified_absent !== true)
+      return machine.failedResult(opts, verification);
+    result = await run(options, { ...request, verified_absent: true }, "create", process.env);
+  }
   return result.status === "ready"
     ? { ...opts, "rybbit/ssh-resource": result, "red/exit": 0 }
     : machine.failedResult(opts, result);

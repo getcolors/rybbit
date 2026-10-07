@@ -6,7 +6,7 @@ import stat
 from pathlib import Path
 from blue.scope import with_scope
 from blue.process import run_inherit
-from colors_compute import ssh_resource, start_agent, compute_registration, registration_plan
+from colors_compute import ssh_verify_absent, ssh_resource, start_agent, compute_registration, registration_plan
 from . import compute
 from colors_compute.node import _directory
 
@@ -70,9 +70,22 @@ def lock(opts):
 async def resource_step(opts):
     if compute.planning(opts):
         return {**opts, 'rybbit/ssh-resource': compute.PLACEHOLDER, 'blue/exit': 0}
-    existing = (Path(compute.sdk_workdir(opts)) / opts['profile'] / compute.NODE_ID / 'compute.tf.json').exists()
-    operation = 'inspect' if existing or opts.get('compute-require-existing-state') or opts.get('blue/event') != 'create' else 'create'
-    result = await ssh_resource(compute.library_options(opts), compute.ssh_request(opts), operation, dict(os.environ))
+    options = compute.library_options(opts)
+    request = compute.ssh_request(opts)
+    environment = dict(os.environ)
+    result = await ssh_resource(options, request, 'inspect', environment)
+    if (result.get('status') == 'error'
+            and (result.get('error') or {}).get('code') == 'ssh_authority_missing'
+            and opts.get('blue/event') == 'create'
+            and not opts.get('compute-require-existing-state')):
+        verification = await ssh_verify_absent(options, {
+            'workdir': compute.sdk_workdir(opts),
+            'consumers': [{'node_id': compute.NODE_ID, 'state_filename': 'rybbit-node-0.tfstate'}],
+            'registrations': [{'name': 'machine-access', 'state_filename': 'rybbit-ssh-registration.tfstate'}] if compute.registration(opts) else [],
+        }, environment)
+        if verification.get('status') != 'verified' or verification.get('verified_absent') is not True:
+            return compute.failure(opts, verification)
+        result = await ssh_resource(options, {**request, 'verified_absent': True}, 'create', environment)
     return {**opts, 'rybbit/ssh-resource': result, 'blue/exit': 0} if result['status'] == 'ready' else compute.failure(opts, result)
 
 

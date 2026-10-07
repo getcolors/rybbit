@@ -28,7 +28,7 @@ This version requires `compute-api-version: 2` and creates fresh deployments
 only. Existing deployments keep their pinned launchers, configuration, keys and
 state. There is no migration, adoption or compatibility layer.
 
-The pinned [colors-compute v2 contract](https://github.com/getcolors/colors-compute/blob/bc8658ded0e78bd7b212e3e89a2d87184fa64561/contracts/node.md)
+The pinned [colors-compute v2 contract](https://github.com/getcolors/colors-compute/blob/4f3ea45799f6b8f1a22b1347e7e4233d0853036f/contracts/node.md)
 owns provider validation, templates, backend access and guarded node operations.
 Rybbit owns a singleton `rybbit-compute`, workflow ordering, a profile lock, and
 application convergence. Provider support comes from that library pin; package
@@ -61,6 +61,23 @@ then removes any provider registration. It retains encrypted SSH authority.
 The public cache alone cannot authenticate after the scoped agent stops.
 Build renders under `.colors/build/<profile>/` without credentials; dry-run
 performs no state reads or writes.
+
+### Fresh deployment verification
+
+Create first inspects encrypted SSH authority and reuses an existing ready
+identity. If authority is confirmed missing and `compute-require-existing-state`
+is false, Rybbit asks the compute library to inspect its node and registration
+state and check the provider for matching resources. Only a verified absence
+result authorizes creating the identity. Unreadable or nonempty state, existing
+provider resources, incomplete inventories, and unsupported authentication
+overrides stop creation. Restore the original authority when consumers survive;
+never force the verification flag.
+
+The check uses the configured provider account/project and stable resource names;
+it does not discover renamed resources or other deployments sharing an identity.
+Keep the profile and provider scope stable and serialize deployment operations.
+Build and dry-run perform no verification calls. The library contract documents
+required read permissions, command-line tools, and supported credential sources.
 
 ## Images and data
 
