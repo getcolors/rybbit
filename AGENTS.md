@@ -69,7 +69,7 @@ no migration, adoption or compatibility tooling is supplied.
 
 Read `../workspace/standards/compute-provider.md`, `ssh-keypair.md` and
 `ssh-config.md`, prioritizing their v2 sections over older contracts. The
-library pin is `ed39df40ac0bd30f4014c263ec70ae7d09ab3984`. The node is
+library pin is `b4421d0478ced33fc5b97cdd4a8a93cd34949f18`. The node is
 `rybbit-compute`, its state is `<profile>/rybbit-node-0.tfstate`, and separate
 public-key registration uses `<profile>/rybbit-ssh-registration.tfstate` where
 required by the library registry. DNS retains `<profile>/rybbit-dns.tfstate`.
