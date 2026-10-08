@@ -140,10 +140,42 @@ when restoring the existing users and organizations.
 
 ### Upgrade and restore rehearsal
 
-The 8 October 2026 rehearsal is running at
+Production was switched to Hetzner on 8 October 2026 at 06:18 UTC, after the
+operator verified login, historical data and session replay on the rehearsal
+site and accepted the gap since the restored snapshot. No final restore or
+Redis migration was performed. `rybbit.getcolors.ai` now points to `2.31.12.220`;
+Cloudflare proxying, automatic TTL and strict origin TLS were preserved.
+The rehearsal hostname redirects to production, preserving the request path.
+Vultr Caddy forwards late production requests to Hetzner using verified HTTPS;
+its original application and databases remain intact for rollback.
+
+**Ordinary `create` and `delete` are frozen for both deployments.** This cutover
+updated the existing Cloudflare record in place outside OpenTofu. Vultr DNS
+state still owns production record `638a21dd81d2e8f02995de6cc23cf67d` in zone
+`19c2f7a3c6651751a43d9700640fd9fd`; Hetzner DNS state still owns the rehearsal
+record. Complete a controlled DNS state ownership handoff before resuming those
+commands. Root desired state records the production hostname, but normal DNS
+convergence is not safe yet. Application changes currently use scoped `ssh`.
+The rehearsal redirect is an operational Caddy addition, not a generated
+single-host template feature.
+
+For rollback, first restore Vultr's `/opt/rybbit/Caddyfile` **in place** from its
+protected `/var/backups/rybbit-cutover/Caddyfile.before` (write into the existing
+file, preserving its inode), validate and reload Caddy, and
+verify the old application directly over HTTPS. Then update only the existing
+production A record's content to `78.141.212.24`, preserving proxy and TTL.
+Restoring source Caddy first prevents it from continuing to forward to Hetzner.
+The dedicated production DNS credential and before/after record metadata are
+protected under `/home/ubuntu/.local/share/rybbit-hetzner-cutover/` on the
+operator machine; never print or commit the credential. No rollback was run.
+Target-only writes will not appear in the retained Vultr databases.
+
+The following records the earlier rehearsal, before production cutover.
+
+The 8 October 2026 rehearsal ran at
 [rybbit.bigconfig.online](https://rybbit.bigconfig.online) on CAX21 in Nuremberg
-(`2.31.12.220`, ARM64). Production remains on Vultr; no production DNS cutover
-was performed. Published implementation `01f681dcfbe32082807badf0660b689169d6502d`
+(`2.31.12.220`, ARM64). Production remained on Vultr during that rehearsal;
+the later cutover is recorded above. Published implementation `01f681dcfbe32082807badf0660b689169d6502d`
 and launcher-pin commit `c352127203c286dff98f539d491aedfc3d484eec` were published.
 Local validation passed 277 tests plus type, parity, golden and launcher checks;
 the successful GitHub workflow published the repository's Pages site.

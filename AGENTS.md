@@ -1,5 +1,15 @@
 # CLAUDE.md
 
+## Production cutover operational freeze — 2026-10-08
+
+Do not run ordinary `create` or `delete` for either `rybbit-hetzner` or
+`rybbit-vultr` until the production DNS state ownership handoff is completed.
+The production Cloudflare record was switched in place to Hetzner outside
+OpenTofu; Vultr state still owns that record and Hetzner state owns the rehearsal
+record. A normal converge or destroy could undo or delete production routing.
+Use scoped `ssh` for application operations. Preserve both remote states and
+the retained Vultr instance. See README for the cutover and rollback record.
+
 ## Repository
 
 `rybbit` is a tri-colour Package Skill (green, red, blue) for a

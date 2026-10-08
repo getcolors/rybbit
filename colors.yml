@@ -16,7 +16,8 @@ hcloud-server-type: cax21
 hcloud-location: nbg1
 hcloud-image: "161547270"
 
-rybbit-host: rybbit.bigconfig.online
+# Production cutover applied over scoped SSH; see AGENTS.md DNS automation freeze.
+rybbit-host: rybbit.getcolors.ai
 rybbit-disable-signup: true
 # Multi-architecture indices include linux/arm64; Rybbit v2.9.0 rehearsal.
 postgres-image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
