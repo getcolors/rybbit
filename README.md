@@ -82,6 +82,11 @@ required read permissions, command-line tools, and supported credential sources.
 - **Disaster Recovery**: Automated systemd timer `rybbit-backup.timer` executing
   `/usr/local/sbin/rybbit-backup` for consistent PostgreSQL dumps and ClickHouse
   snapshots, uploaded to Cloudflare R2 via `rclone`.
+  See the [new-profile disaster recovery runbook](docs/disaster-recovery.md)
+  for restoring an old deployment's backup into an isolated replacement and
+  transferring production DNS after validation. Ordinary `create` does not
+  restore data; staged recovery automation and a full replacement drill remain
+  outstanding.
 
 ## Quick Start
 
