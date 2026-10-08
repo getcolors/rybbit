@@ -45,11 +45,14 @@ services:
   clickhouse:
     image: <{ clickhouse-image }>
     restart: unless-stopped
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     env_file:
       - stack.env
     volumes:
       - <{ clickhouse-data-dir }>:/var/lib/clickhouse
       - /var/lib/rybbit/clickhouse-users.d/allow-json.xml:/etc/clickhouse-server/users.d/allow-json.xml:ro
+      - /var/lib/rybbit/clickhouse-config.d/rybbit.xml:/etc/clickhouse-server/config.d/rybbit.xml:ro
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
       interval: 3s

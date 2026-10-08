@@ -10,7 +10,7 @@ HTTP/3) and key-only SSH are public. PostgreSQL, ClickHouse, Redis, and
 internal Rybbit application ports remain on the private Compose network.
 
 The Rybbit stack pairs PostgreSQL 17 for relational metadata/authentication with
-ClickHouse 24.8 for high-throughput columnar analytics. Persistent data lives
+ClickHouse 26.3 for high-throughput columnar analytics. Persistent data lives
 under `/var/lib/rybbit`; a systemd timer takes regular database backups to R2.
 
 ## Layout and commands

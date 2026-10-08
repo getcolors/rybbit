@@ -77,7 +77,7 @@ required read permissions, command-line tools, and supported credential sources.
   to Rybbit client (Next.js).
 - **Databases**:
   - **PostgreSQL 17** (`postgres:17-alpine`) for auth/metadata (Better-Auth, users, projects).
-  - **ClickHouse 24.8** (`clickhouse/clickhouse-server:24.8-alpine`) for high-throughput columnar analytics events.
+  - **ClickHouse 26.3** (`clickhouse/clickhouse-server:26.3.17.4`) for high-throughput columnar analytics events.
   - **Redis** (`redis:8.6.4-alpine`) for session state and tracking queues.
 - **Disaster Recovery**: Automated systemd timer `rybbit-backup.timer` executing
   `/usr/local/sbin/rybbit-backup` for consistent PostgreSQL dumps and ClickHouse
@@ -106,15 +106,111 @@ and run the same way with `./red` and `./blue`.
 ./green ssh                # scoped administrative SSH session
 ```
 
-## Google example
+## Hetzner migration target
 
-The root `colors.yml` describes a fresh Google deployment with an ARM64 Ubuntu
-image, `n4a-highmem-1`, Hyperdisk Balanced, GVNIC and a 100 GB boot disk. Google
-uses Application Default Credentials. Check project permissions, quota, image
-availability and metadata-key/OS Login policy before a real create. Cloudflare
-DNS, R2 state and R2 backups remain independent services.
+The root `colors.yml` configures a fresh `rybbit-hetzner` deployment on Hetzner
+CAX21 in Nuremberg (`nbg1`): 4 ARM64 vCPUs, 8 GB RAM and 80 GB local NVMe.
+It pins Ubuntu 24.04 ARM image ID `161547270` and selects no private network.
+All six container images are pinned to multi-architecture digests supporting
+ARM64. The Rybbit backend and client target release **2.9.0**; the existing
+Vultr deployment stays on **2.8.0**. PostgreSQL stays on the supported 17 major
+line. Redis stays on 8.6.4, matching upstream's 2.9.0 Compose configuration,
+rather than adding an independent Redis upgrade to the database migration.
 
-Create the first account while signup is enabled, then set
+Supply `COLORS_PAR_HCLOUD_TOKEN` at runtime, alongside the existing Cloudflare,
+R2, backup and SSH-passphrase bindings. Use dedicated `rybbit-hetzner-state`
+and `rybbit-hetzner-backup` buckets; state, SSH authority and backups use the
+`rybbit-hetzner` profile prefix. No old state or SSH identity is adopted.
+Both private EU buckets and separate bucket-scoped credentials were provisioned
+and verified on 8 October 2026. Configuration itself does not create buckets
+or move existing state and backups. See the
+[deployment resource catalog](https://wiki.pocketcontext.com/#/page/deployment-profile-rybbit-hetzner)
+for bootstrap ownership and credential references.
+
+`compute-require-existing-state: false` permits the initial create after the
+library verifies resource absence. Set it to `true` after the first successful
+create. Destroy protection stays enabled. Build and dry-run are offline checks;
+real provisioning is a separate authorized operation.
+
+Keep `rybbit.bigconfig.online` as the rehearsal hostname. Restore and validate
+PostgreSQL, ClickHouse, application secrets and Redis workload handling before
+the separately coordinated final backup and cutover of `rybbit.getcolors.ai`.
+Vultr retains production DNS ownership until that cutover. Keep signup disabled
+when restoring the existing users and organizations.
+
+### Upgrade and restore rehearsal
+
+The target follows [Rybbit 2.9.0](https://github.com/rybbit-io/rybbit/releases/tag/v2.9.0)
+and its [Compose configuration](https://github.com/rybbit-io/rybbit/blob/v2.9.0/docker-compose.yml).
+The image and template update does not prove database migration compatibility.
+The source ClickHouse 24.8.14.39 to target 26.3.17.4 upgrade must pass a full
+native-backup restore rehearsal, including JSON columns, historical counts,
+replays, queries and ingestion. If direct restore fails, establish a supported
+intermediate upgrade or logical transfer on disposable copies; do not alter
+the source database to discover the path. Use a PostgreSQL logical dump, not
+a copy of the x86 data directory, for the ARM64 target.
+
+Normal `create` starts the application and performs acceptance, including a
+backup. It is not a restore command or an automatic migration workflow. Before
+restoring onto a rehearsal server, stop its backend, client, Caddy and backup
+timer and any pending backup service. Discard only the target's disposable
+bootstrap databases, recreate clean target databases, and restore the source
+snapshot before starting the new backend. Do not merge the source dump into
+the already-initialized 2.9.0 schema or copy source database migration markers
+selectively. Keep the complete restored migration history with its data.
+
+The backend entrypoint applies PostgreSQL migrations at startup. Version 2.9.0
+adds migrations 0014 through 0018 beyond 2.8.0; the Better Auth migration checks
+duplicate provider/account identities and invalid OAuth metadata. Rehearse and
+verify login, organization/site IDs, API keys and OAuth behavior after migration.
+Migration [0014](https://github.com/rybbit-io/rybbit/blob/v2.9.0/server/drizzle/0014_huge_dagger.sql)
+drops the old uptime-monitoring tables, including monitors, incidents and alerts.
+Check whether those features contain data you need before production cutover;
+preserve the original dump and arrange a separate export or replacement if used.
+Transfer required application secrets, especially `BETTER_AUTH_SECRET`, through
+a protected channel without displaying them. The current archive omits those
+secrets and Redis; explicitly preserve or drain relevant Redis state and verify
+session continuity. Reconcile the target hostname settings after secret transfer.
+
+Session replay needs a separate, one-time
+[metadata v2 backfill](https://github.com/rybbit-io/rybbit/blob/v2.9.0/clickhouse/REPLAY_METADATA_V2.md).
+The upgraded backend creates `session_replay_metadata_v2` but does not transfer
+the old table's rows. After isolated startup initializes the new tables, keep
+ingestion fenced and stop writers before executing the upstream backfill against
+the restored database. It uses `FINAL`, preserves duration precision, and copies
+the retained 30-day window. Verify session counts and event/size totals before
+accepting writes. The insertion is **not idempotent**: rerunning doubles sums.
+Record completion per restored snapshot; recover an interrupted rehearsal on a
+fresh disposable target, never blindly repeat or truncate after production writes.
+Retain the old replay table and source snapshot throughout the rollback window.
+
+The target uses modern ClickHouse JSON settings and enables access management
+for upstream's restricted query-user provisioning. Shared-host memory/thread
+limits leave room for PostgreSQL, Redis and the application. Upstream's custom
+query-user profile has its own larger per-query limit; the server-wide cap still
+applies. Load testing and measured migration duration remain deployment checks.
+
+Keep Vultr serving production throughout rehearsal. For cutover, fence writes
+and drain pending work, capture a final consistent snapshot, repeat the proven
+restore/migration, verify production TLS and URLs, and transfer DNS ownership
+exactly once. Preserve Cloudflare proxy behavior; route late requests reaching
+the old origin to the selected active writer to avoid split ingestion. Both
+servers may remain running, but they must not independently accept production
+writes during the transition.
+
+Before target writes begin, the original Vultr snapshot provides a straightforward
+fallback. Afterward, DNS rollback alone omits Hetzner-only events and account
+changes. Lossless rollback requires a separately tested capture/replay or reverse
+migration mechanism with deduplication. Do not run the old application against
+upgraded schemas or assume ClickHouse data files can be downgraded.
+
+When changing source templates, the standalone launchers continue to resolve
+their existing release pins; a root image change does not upgrade the templates
+fetched by those pins. Publish the reviewed source and regenerate launcher pins
+with `bb pin` before a normal launcher deployment. For local
+validation use the repository's `RYBBIT_LIB_ROOT` paths as in `scripts/parity.sh`.
+
+For an empty installation, create the first account while signup is enabled, then set
 `rybbit-disable-signup: true` and converge again. Until an organization exists,
 acceptance may report ingestion as `not-configured`; rerun after bootstrap to
 verify a synthetic event. Backup checks verify PostgreSQL restoration and a

@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:2.11.4
+    image: caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
     restart: unless-stopped
     ports:
       - "80:80"
@@ -27,7 +27,7 @@ services:
       - internal
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     restart: unless-stopped
     env_file:
       - stack.env
@@ -43,13 +43,16 @@ services:
       - internal
 
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8-alpine
+    image: clickhouse/clickhouse-server:26.3.17.4@sha256:85c434814ac8905e5648027ce926f74ab067edd6aadbccb6c0c165cd3571ea49
     restart: unless-stopped
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     env_file:
       - stack.env
     volumes:
       - /var/lib/rybbit/clickhouse:/var/lib/clickhouse
       - /var/lib/rybbit/clickhouse-users.d/allow-json.xml:/etc/clickhouse-server/users.d/allow-json.xml:ro
+      - /var/lib/rybbit/clickhouse-config.d/rybbit.xml:/etc/clickhouse-server/config.d/rybbit.xml:ro
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
       interval: 3s
@@ -60,7 +63,7 @@ services:
       - internal
 
   redis:
-    image: redis:8.6.4-alpine
+    image: redis:8.6.4-alpine@sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763
     restart: unless-stopped
     env_file:
       - stack.env
@@ -78,7 +81,7 @@ services:
       - internal
 
   backend:
-    image: ghcr.io/rybbit-io/rybbit-backend@sha256:f729f42575bf018ff97e9f36d49200665b99003a14868acbe56a9b32a9ed6ac7
+    image: ghcr.io/rybbit-io/rybbit-backend:v2.9.0@sha256:5a824932c8b7b16364c8ee132e29d1d9d9574445e0d1f091e6364695e117bd66
     restart: unless-stopped
     env_file:
       - stack.env
@@ -107,7 +110,7 @@ services:
       - internal
 
   client:
-    image: ghcr.io/rybbit-io/rybbit-client@sha256:f384c1f73a0c2fc0794526908a1fdb2ba410a5cdb3f105487af70f067c8f103a
+    image: ghcr.io/rybbit-io/rybbit-client:v2.9.0@sha256:2f6f7cbfd65f50129573b67082148b5bb00c20c04420d74ae133c1fd4dc8ac99
     restart: unless-stopped
     env_file:
       - stack.env

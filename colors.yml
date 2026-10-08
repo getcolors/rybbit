@@ -1,43 +1,40 @@
-profile: rybbit-google
+profile: rybbit-hetzner
 workdir: .colors
 compute-api-version: 2
-provider-compute: google
+provider-compute: hcloud
 provider-dns: cloudflare
 provider-backend: r2
 compute-prevent-destroy: true
-compute-require-existing-state: true
+# Fresh deployment: enable after the first successful create.
+compute-require-existing-state: false
+compute-network-mode: none
 compute-ssh-sources: ["0.0.0.0/0"]
 compute-http-sources: ["0.0.0.0/0"]
 
-google-project: pocketcontext
-google-region: europe-west4
-google-zone: europe-west4-b
-google-machine-type: n4a-highmem-1
-google-boot-disk-type: hyperdisk-balanced
-google-nic-type: GVNIC
-google-image-project: ubuntu-os-cloud
-google-image-family: ubuntu-2404-lts-arm64
-google-image-id: projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-arm64-v20260918
-google-subnet-cidr: 10.20.1.0/24
-google-boot-disk-size-gb: 100
+# CAX21: 4 ARM64 vCPUs, 8 GB RAM, 80 GB local NVMe, Nuremberg.
+hcloud-server-type: cax21
+hcloud-location: nbg1
+hcloud-image: "161547270"
 
 rybbit-host: rybbit.bigconfig.online
 rybbit-disable-signup: true
-postgres-image: postgres:17-alpine
-clickhouse-image: clickhouse/clickhouse-server:24.8-alpine
-redis-image: redis:8.6.4-alpine
-rybbit-backend-image: ghcr.io/rybbit-io/rybbit-backend:latest
-rybbit-client-image: ghcr.io/rybbit-io/rybbit-client:latest
-caddy-image: caddy:2.11.4
+# Multi-architecture indices include linux/arm64; Rybbit v2.9.0 rehearsal.
+postgres-image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+clickhouse-image: clickhouse/clickhouse-server:26.3.17.4@sha256:85c434814ac8905e5648027ce926f74ab067edd6aadbccb6c0c165cd3571ea49
+redis-image: redis:8.6.4-alpine@sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763
+rybbit-backend-image: ghcr.io/rybbit-io/rybbit-backend:v2.9.0@sha256:5a824932c8b7b16364c8ee132e29d1d9d9574445e0d1f091e6364695e117bd66
+rybbit-client-image: ghcr.io/rybbit-io/rybbit-client:v2.9.0@sha256:2f6f7cbfd65f50129573b67082148b5bb00c20c04420d74ae133c1fd4dc8ac99
+caddy-image: caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
 postgres-data-dir: /var/lib/rybbit/postgres
 clickhouse-data-dir: /var/lib/rybbit/clickhouse
 redis-data-dir: /var/lib/rybbit/redis
 rybbit-backup-dir: /var/backups/rybbit
 
-rybbit-backup-r2-bucket: rybbit-google-backup
+# Dedicated Hetzner buckets; provision both before the first create.
+rybbit-backup-r2-bucket: rybbit-hetzner-backup
 rybbit-backup-r2-endpoint: https://319271fed8bc6d2d9059362be1165f37.eu.r2.cloudflarestorage.com
 rybbit-backup-r2-region: auto
 rybbit-backup-oncalendar: "*-*-* 02:30:00"
 rybbit-backup-retention-days: 7
-r2-bucket: rybbit-google-state
+r2-bucket: rybbit-hetzner-state
 r2-endpoint: https://319271fed8bc6d2d9059362be1165f37.eu.r2.cloudflarestorage.com

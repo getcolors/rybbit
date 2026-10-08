@@ -264,3 +264,38 @@ def test_backup_child_credentials_are_create_only():
     for event in ('build','delete','ssh'):
         assert tools.backup_credential_env({**credentials,'blue/event':event})=={}
     assert tools.backup_credential_env({'blue/event':'create','rybbit-backup-r2-access-key-id':None})=={}
+
+
+def test_clickhouse_upgrade_settings_and_converge_order():
+    """Validate YAML/XML contracts and prevent first-create premature startup."""
+    import xml.etree.ElementTree as ET
+    import yaml
+
+    play = yaml.safe_load(resource("tools/ansible/main.yml"))[0]
+    compose = yaml.safe_load(resource("tools/ansible/compose.yml"))
+    tasks = play["tasks"]
+    copies = {t["ansible.builtin.copy"]["dest"]: t for t in tasks
+              if "ansible.builtin.copy" in t and "dest" in t["ansible.builtin.copy"]}
+    users_task = copies["/var/lib/rybbit/clickhouse-users.d/allow-json.xml"]
+    server_task = copies["/var/lib/rybbit/clickhouse-config.d/rybbit.xml"]
+    profile = ET.fromstring(users_task["ansible.builtin.copy"]["content"]).find("profiles/default")
+    server = ET.fromstring(server_task["ansible.builtin.copy"]["content"])
+    assert profile.findtext("enable_json_type") == "1"
+    assert profile.findtext("async_insert") == profile.findtext("wait_for_async_insert") == "1"
+    assert 0 < int(profile.findtext("max_memory_usage")) <= 1_000_000_000
+    assert 0 < int(profile.findtext("max_threads")) <= 4
+    assert 0 < float(server.findtext("max_server_memory_usage_to_ram_ratio")) <= 0.5
+    assert server.findtext("backups/allowed_path") == "/var/lib/clickhouse/backups/"
+    ch = compose["services"]["clickhouse"]
+    assert ch["environment"]["CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT"] == "1"
+    assert "ports" not in ch
+    for task in (users_task, server_task):
+        assert task["notify"] == "Recreate ClickHouse"
+        dest = task["ansible.builtin.copy"]["dest"]
+        assert any(mount.startswith(dest + ":") for mount in ch["volumes"])
+    install = next(i for i, t in enumerate(tasks) if t.get("name") == "Install stack configuration")
+    flush = next(i for i, t in enumerate(tasks) if t.get("ansible.builtin.meta") == "flush_handlers")
+    assert install < flush
+    assert not any("--force-recreate backend client" in str(t) for t in tasks[:install])
+    settings = next(t for t in tasks if t.get("name") == "Keep desired-state settings in step")
+    assert settings["notify"] == "Recreate application settings"
