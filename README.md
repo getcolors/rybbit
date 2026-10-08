@@ -144,7 +144,9 @@ The 8 October 2026 rehearsal is running at
 [rybbit.bigconfig.online](https://rybbit.bigconfig.online) on CAX21 in Nuremberg
 (`2.31.12.220`, ARM64). Production remains on Vultr; no production DNS cutover
 was performed. Published implementation `01f681dcfbe32082807badf0660b689169d6502d`
-and launcher-pin commit `c352127203c286dff98f539d491aedfc3d484eec` passed CI.
+and launcher-pin commit `c352127203c286dff98f539d491aedfc3d484eec` were published.
+Local validation passed 277 tests plus type, parity, golden and launcher checks;
+the successful GitHub workflow published the repository's Pages site.
 
 The source PostgreSQL dump restored with three sites and two users, then
 upgraded to 19 recorded migrations. The ClickHouse 24.8 native archive restored
