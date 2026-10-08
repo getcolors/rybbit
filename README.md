@@ -127,9 +127,9 @@ or move existing state and backups. See the
 [deployment resource catalog](https://wiki.pocketcontext.com/#/page/deployment-profile-rybbit-hetzner)
 for bootstrap ownership and credential references.
 
-`compute-require-existing-state: false` permits the initial create after the
-library verifies resource absence. Set it to `true` after the first successful
-create. Destroy protection stays enabled. Build and dry-run are offline checks;
+The initial Hetzner create completed on 8 October 2026;
+`compute-require-existing-state: true` now guards subsequent operations.
+Destroy protection stays enabled. Build and dry-run are offline checks;
 real provisioning is a separate authorized operation.
 
 Keep `rybbit.bigconfig.online` as the rehearsal hostname. Restore and validate
@@ -139,6 +139,32 @@ Vultr retains production DNS ownership until that cutover. Keep signup disabled
 when restoring the existing users and organizations.
 
 ### Upgrade and restore rehearsal
+
+The 8 October 2026 rehearsal is running at
+[rybbit.bigconfig.online](https://rybbit.bigconfig.online) on CAX21 in Nuremberg
+(`2.31.12.220`, ARM64). Production remains on Vultr; no production DNS cutover
+was performed. Published implementation `01f681dcfbe32082807badf0660b689169d6502d`
+and launcher-pin commit `c352127203c286dff98f539d491aedfc3d484eec` passed CI.
+
+The source PostgreSQL dump restored with three sites and two users, then
+upgraded to 19 recorded migrations. The ClickHouse 24.8 native archive restored
+directly into 26.3.17.4. Historical events numbered 7,614; the isolated tracking
+probe added one event. The one-time replay backfill matched 1,056 sessions,
+64,096 replay events and 450,705,643 compressed bytes. A fresh target R2 archive
+was downloaded and restored into scratch PostgreSQL and ClickHouse databases;
+site/user/migration counts, event counts and replay totals matched. The scratch
+databases were removed and the backup timer is active. Both hostnames returned
+HTTP 200 for `/api/health` and `/login`.
+
+Authenticated login, dashboard/replay checks, load testing and Redis workload
+handling remain cutover prerequisites. `BETTER_AUTH_SECRET` was preserved;
+Redis was not migrated. The rehearsal snapshot was taken while source ingestion
+continued, so final cutover still requires a fenced, consistent snapshot. The
+source's scheduled R2 backup was observed failing with HTTP 401; the rehearsal
+used a separately captured database archive transferred over SSH. This source
+backup failure remains unresolved. DNS rollback alone cannot recover writes
+accepted only on the target. See the deployment resource catalog for dated
+verification evidence and remaining ownership/recovery gaps.
 
 The target follows [Rybbit 2.9.0](https://github.com/rybbit-io/rybbit/releases/tag/v2.9.0)
 and its [Compose configuration](https://github.com/rybbit-io/rybbit/blob/v2.9.0/docker-compose.yml).

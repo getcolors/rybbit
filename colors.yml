@@ -5,8 +5,8 @@ provider-compute: hcloud
 provider-dns: cloudflare
 provider-backend: r2
 compute-prevent-destroy: true
-# Fresh deployment: enable after the first successful create.
-compute-require-existing-state: false
+# Initial Hetzner create completed; refuse missing ownership on later runs.
+compute-require-existing-state: true
 compute-network-mode: none
 compute-ssh-sources: ["0.0.0.0/0"]
 compute-http-sources: ["0.0.0.0/0"]
