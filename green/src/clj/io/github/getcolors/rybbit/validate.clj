@@ -55,6 +55,13 @@
     (when-not (or (missing? (:rybbit-host opts))
                   (re-matches host-re (str (:rybbit-host opts))))
       [":rybbit-host must be a fully qualified hostname"])
+    (when (and (contains? opts :rybbit-redirect-host)
+               (not (and (string? (:rybbit-redirect-host opts))
+                         (re-matches host-re (:rybbit-redirect-host opts)))))
+      [":rybbit-redirect-host must be a fully qualified hostname"])
+    (when (and (some? (:rybbit-redirect-host opts))
+               (= (:rybbit-host opts) (:rybbit-redirect-host opts)))
+      [":rybbit-redirect-host must differ from :rybbit-host"])
     (for [k [:postgres-image :clickhouse-image :redis-image
              :rybbit-backend-image :rybbit-client-image :caddy-image]
           :let [v (get opts k)]

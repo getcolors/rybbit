@@ -121,6 +121,9 @@
          :ip (or (:ip opts) (:ip (fallback-params opts)))
          :ssh-keygen (validate/keygen? opts) :ssh-identity-present (boolean (:ssh-private-key-path opts))
          :compute-name (or (:name opts) (:name (fallback-params opts)))
+         :rybbit-redirect-block (if-let [host (:rybbit-redirect-host opts)]
+                                 (str "\n" host " {\n    redir https://" (:rybbit-host opts) "{uri} 301\n}\n")
+                                 "")
          :rybbit-backup-access-key "{{ lookup('env','RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}"
          :rybbit-backup-secret-key "{{ lookup('env','RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY') }}"))
 (defn ansible-specs [opts]

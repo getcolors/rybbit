@@ -149,15 +149,26 @@ The rehearsal hostname redirects to production, preserving the request path.
 Vultr Caddy forwards late production requests to Hetzner using verified HTTPS;
 its original application and databases remain intact for rollback.
 
-**Ordinary `create` and `delete` are frozen for both deployments.** This cutover
-updated the existing Cloudflare record in place outside OpenTofu. Vultr DNS
-state still owns production record `638a21dd81d2e8f02995de6cc23cf67d` in zone
-`19c2f7a3c6651751a43d9700640fd9fd`; Hetzner DNS state still owns the rehearsal
-record. Complete a controlled DNS state ownership handoff before resuming those
-commands. Root desired state records the production hostname, but normal DNS
-convergence is not safe yet. Application changes currently use scoped `ssh`.
-The rehearsal redirect is an operational Caddy addition, not a generated
-single-host template feature.
+The DNS state handoff completed at 06:38 UTC on 8 October 2026. Protected state
+snapshots were captured first; `tofu state rm` detached the rehearsal record
+from Hetzner and production from Vultr without deleting either live record.
+Production record `638a21dd81d2e8f02995de6cc23cf67d` in zone
+`19c2f7a3c6651751a43d9700640fd9fd` was imported at
+`cloudflare_dns_record.rybbit` into
+`rybbit-hetzner-state/rybbit-hetzner/rybbit-dns.tfstate`. The normal DNS plan
+returned exit 0 with no changes, using the existing Cloudflare provider 5.27.0.
+The dedicated production DNS credential is installed in the normal
+`COLORS_PAR_CLOUDFLARE_API_TOKEN` runtime binding. The temporary source-state
+credential was revoked after the handoff.
+
+Hetzner's DNS automation freeze is lifted with the redirect-support release.
+Optional `rybbit-redirect-host: rybbit.bigconfig.online` renders a 301 redirect
+to the primary hostname, preserving path and query during normal convergence.
+It does not create or manage DNS for the redirect hostname; the existing
+rehearsal record `747c4d8aa3bd8f7667ba59200b32b834` remains externally managed.
+**Vultr `create`/`delete` remain frozen**: its state has no managed DNS record,
+but its retained desired configuration still names production. Never converge
+that retired profile against production. Destruction remains separately guarded.
 
 For rollback, first restore Vultr's `/opt/rybbit/Caddyfile` **in place** from its
 protected `/var/backups/rybbit-cutover/Caddyfile.before` (write into the existing

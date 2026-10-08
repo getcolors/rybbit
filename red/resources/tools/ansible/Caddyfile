@@ -33,3 +33,4 @@
         reverse_proxy client:3002
     }
 }
+<{ rybbit-redirect-block }>

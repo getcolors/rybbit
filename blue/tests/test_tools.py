@@ -299,3 +299,18 @@ def test_clickhouse_upgrade_settings_and_converge_order():
     assert not any("--force-recreate backend client" in str(t) for t in tasks[:install])
     settings = next(t for t in tasks if t.get("name") == "Keep desired-state settings in step")
     assert settings["notify"] == "Recreate application settings"
+
+
+def test_optional_host_redirect_preserves_uri_and_validates_hosts():
+    from package_rybbit_blue import validate
+    def render(opts):
+        return render_template(tools.template("ansible", "Caddyfile"), tools.ansible_data({**opts, "blue/event": "build"}), tools.template_opts)
+    assert "redir " not in render(fixture())
+    assert "old.example.com {\n    redir https://rybbit.example.com{uri} 301\n}" in render(
+        fixture({"rybbit-redirect-host": "old.example.com"}))
+    for host in ["", None, "https://old.example.com", "old.example.com\n", "bad.example.com\n}"]:
+        assert ":rybbit-redirect-host must be a fully qualified hostname" in validate.state_errors(
+            fixture({"rybbit-redirect-host": host}))
+    assert ":rybbit-redirect-host must differ from :rybbit-host" in validate.state_errors(
+        fixture({"rybbit-redirect-host": "rybbit.example.com"}))
+    assert validate.state_errors(fixture({"rybbit-redirect-host": "old.example.com"})) == []

@@ -1,14 +1,17 @@
 # CLAUDE.md
 
-## Production cutover operational freeze — 2026-10-08
+## Production DNS ownership — 2026-10-08
 
-Do not run ordinary `create` or `delete` for either `rybbit-hetzner` or
-`rybbit-vultr` until the production DNS state ownership handoff is completed.
-The production Cloudflare record was switched in place to Hetzner outside
-OpenTofu; Vultr state still owns that record and Hetzner state owns the rehearsal
-record. A normal converge or destroy could undo or delete production routing.
-Use scoped `ssh` for application operations. Preserve both remote states and
-the retained Vultr instance. See README for the cutover and rollback record.
+Hetzner now owns production DNS in `rybbit-hetzner/rybbit-dns.tfstate` at
+`cloudflare_dns_record.rybbit`. The protected handoff preserved the record and
+passed a no-change DNS plan. The production DNS credential is installed in the
+normal runtime binding. Hetzner convergence can resume with the published
+redirect-support implementation; destroy protection remains enabled.
+The rehearsal DNS record is externally managed; `rybbit-redirect-host` preserves
+its HTTP redirect during convergence but does not manage its DNS.
+Keep `rybbit-vultr` create/delete frozen: its retained desired state still names
+production, even though its DNS state no longer owns any managed record.
+Preserve the Vultr instance for rollback. See README for the handoff record.
 
 ## Repository
 

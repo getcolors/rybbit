@@ -192,6 +192,8 @@ def ansible_data(opts: dict) -> dict:
             "ip": opts.get("ip") or fallback_params(opts)["ip"],
             "ssh-keygen": validate.keygen(opts), "ssh-identity-present": bool(opts.get("ssh-private-key-path")),
             "compute-name": opts.get("name") or fallback_params(opts)["name"],
+            "rybbit-redirect-block": ("" if opts.get("rybbit-redirect-host") is None else
+                "\n" + opts["rybbit-redirect-host"] + " {\n    redir https://" + opts["rybbit-host"] + "{uri} 301\n}\n"),
             "rybbit-backup-access-key":
                 "{{ lookup('env','RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
             "rybbit-backup-secret-key":

@@ -105,6 +105,13 @@ export function stateErrors(opts: Opts): string[] {
   )) {
     errors.push(":rybbit-host must be a fully qualified hostname");
   }
+  if ("rybbit-redirect-host" in opts &&
+      (typeof opts["rybbit-redirect-host"] !== "string" || !hostRe.test(String(opts["rybbit-redirect-host"])) || /\s/.test(String(opts["rybbit-redirect-host"])))) {
+    errors.push(":rybbit-redirect-host must be a fully qualified hostname");
+  }
+  if (opts["rybbit-redirect-host"] != null && opts["rybbit-redirect-host"] === opts["rybbit-host"]) {
+    errors.push(":rybbit-redirect-host must differ from :rybbit-host");
+  }
   for (const key of imageKeys) {
     const value = opts[key];
     if (!missing(value) && !imageRe.test(String(value))) {

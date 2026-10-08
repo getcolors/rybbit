@@ -266,6 +266,8 @@ export function ansibleData(opts: Opts): Opts {
     "ssh-keygen": validate.keygen(opts),
     "ssh-identity-present": Boolean(opts["ssh-private-key-path"]),
     "compute-name": opts.name ?? fallbackParams(opts).name,
+    "rybbit-redirect-block": opts["rybbit-redirect-host"] == null ? "" :
+      `\n${opts["rybbit-redirect-host"]} {\n    redir https://${opts["rybbit-host"]}{uri} 301\n}\n`,
     "rybbit-backup-access-key":
       "{{ lookup('env','RYBBIT_BACKUP_R2_ACCESS_KEY_ID') }}",
     "rybbit-backup-secret-key":

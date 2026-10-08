@@ -214,3 +214,16 @@
       (is (= {} (tools/ansible-secret-env (assoc opts :green/event :delete))))
       (is (= {} (tools/ansible-secret-env (assoc opts :green/event :build))))
       (finally (fs/delete-tree root)))))
+
+(deftest optional-host-redirect-preserves-uri
+  (let [render #(sc/render-template (tools/template "ansible" "Caddyfile")
+                                   (tools/ansible-data (assoc % :green/event :build)) tools/template-opts)]
+    (is (not (str/includes? (render (fixture)) "redir ")))
+    (is (str/includes? (render (fixture :rybbit-redirect-host "old.example.com"))
+                       "old.example.com {\n    redir https://rybbit.example.com{uri} 301\n}")))
+  (doseq [host ["" nil "https://old.example.com" "old.example.com\n" "bad.example.com\n}"]]
+    (is (some #{":rybbit-redirect-host must be a fully qualified hostname"}
+              (validate/state-errors (fixture :rybbit-redirect-host host)))))
+  (is (some #{":rybbit-redirect-host must differ from :rybbit-host"}
+            (validate/state-errors (fixture :rybbit-redirect-host "rybbit.example.com"))))
+  (is (empty? (validate/state-errors (fixture :rybbit-redirect-host "old.example.com")))))

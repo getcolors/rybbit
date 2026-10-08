@@ -506,3 +506,14 @@ test("neutral HTTP3 ingress and observed hostname",()=>{
  expect(compute.requirements(fixture({'compute-http-sources':[]})).ingress).toHaveLength(1);
  expect(tools.ansibleData(fixture({ip:'203.0.113.7',user:'ubuntu',name:'observed-node'}))['compute-name']).toBe('observed-node');
 });
+
+test("optional host redirect preserves URI and validates hosts", () => {
+  const render = (opts: Opts) => renderTemplate(tools.template("ansible", "Caddyfile"), tools.ansibleData(opts), tools.templateOpts);
+  expect(render(fixture())).not.toContain("redir ");
+  expect(render(fixture({"rybbit-redirect-host": "old.example.com"}))).toContain("old.example.com {\n    redir https://rybbit.example.com{uri} 301\n}");
+  for (const host of ["", null, "https://old.example.com", "old.example.com\n", "bad.example.com\n}"]) {
+    expect(validate.stateErrors(fixture({"rybbit-redirect-host": host}))).toContain(":rybbit-redirect-host must be a fully qualified hostname");
+  }
+  expect(validate.stateErrors(fixture({"rybbit-redirect-host": "rybbit.example.com"}))).toContain(":rybbit-redirect-host must differ from :rybbit-host");
+  expect(validate.stateErrors(fixture({"rybbit-redirect-host": "old.example.com"}))).toEqual([]);
+});

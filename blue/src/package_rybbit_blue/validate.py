@@ -79,6 +79,12 @@ def state_errors(opts: dict) -> list[str]:
     if not (missing(opts.get("rybbit-host"))
             or _host_re.fullmatch(str(opts.get("rybbit-host")))):
         errors.append(":rybbit-host must be a fully qualified hostname")
+    if "rybbit-redirect-host" in opts and not (
+            isinstance(opts["rybbit-redirect-host"], str)
+            and _host_re.fullmatch(opts["rybbit-redirect-host"])):
+        errors.append(":rybbit-redirect-host must be a fully qualified hostname")
+    if opts.get("rybbit-redirect-host") is not None and opts["rybbit-redirect-host"] == opts.get("rybbit-host"):
+        errors.append(":rybbit-redirect-host must differ from :rybbit-host")
     for key in image_keys:
         value = opts.get(key)
         if not missing(value) and not _image_re.fullmatch(str(value)):
