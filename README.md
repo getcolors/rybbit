@@ -161,6 +161,31 @@ The dedicated production DNS credential is installed in the normal
 `COLORS_PAR_CLOUDFLARE_API_TOKEN` runtime binding. The temporary source-state
 credential was revoked after the handoff.
 
+The first full convergence exposed an obsolete Hetzner 1.54 provider reader:
+Hetzner had removed `datacenter.location`, so refresh returned an empty location
+and proposed replacing the correctly located server. Destroy protection blocked
+that plan. The compute library now pins compatible provider 1.58.0, following
+the [upstream API compatibility release](https://github.com/hetznercloud/terraform-provider-hcloud/releases/tag/v1.58.0).
+Provider locks were upgraded through OpenTofu initialization; no state values
+or destruction guards were changed to suppress the mismatch.
+
+The subsequent normal `create` completed all stages. A plan guard verified no
+managed resource changes for compute and DNS before applying those plans;
+server ID `169322464` remained unchanged and refreshed location was `nbg1`.
+HTTPS, fresh public tracking and a new R2 backup passed. The redirect preserved
+both path and query. The published compute dependency is
+`b4421d0478ced33fc5b97cdd4a8a93cd34949f18`, package implementation `073e91c`
+and launcher-pin commit `9d04622`. Local Rybbit validation passed 280 tests,
+typecheck, golden, parity and published-launcher checks.
+
+The current private environment, production DNS credential and a dated recovery
+bundle are saved in VaultContext. The bundle contains application secret/config
+files, current target state and encrypted machine-access authority, and the DNS
+handoff snapshots. All three saved files passed exact-version restore checks
+into protected paths without inspecting or executing the restored contents.
+Database archives remain in R2; the earlier database restore rehearsal is
+separate evidence. This is not a full replacement-server disaster-recovery drill.
+
 Hetzner's DNS automation freeze is lifted with the redirect-support release.
 Optional `rybbit-redirect-host: rybbit.bigconfig.online` renders a 301 redirect
 to the primary hostname, preserving path and query during normal convergence.
@@ -170,7 +195,9 @@ rehearsal record `747c4d8aa3bd8f7667ba59200b32b834` remains externally managed.
 but its retained desired configuration still names production. Never converge
 that retired profile against production. Destruction remains separately guarded.
 
-For rollback, first restore Vultr's `/opt/rybbit/Caddyfile` **in place** from its
+For rollback, first suspend Hetzner convergence: its desired DNS state still
+targets Hetzner and would undo a manual DNS rollback. Then restore Vultr's
+`/opt/rybbit/Caddyfile` **in place** from its
 protected `/var/backups/rybbit-cutover/Caddyfile.before` (write into the existing
 file, preserving its inode), validate and reload Caddy, and
 verify the old application directly over HTTPS. Then update only the existing
