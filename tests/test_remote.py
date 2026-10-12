@@ -75,6 +75,8 @@ class RemoteTests(unittest.TestCase):
         def run(*args, **kwargs):
             if args[:2] == ('docker', 'inspect'):
                 return Mock(returncode=0, stdout=b'false 0 false')
+            if args[:2] == ('systemctl', 'show'):
+                return Mock(returncode=0, stdout=b'LoadState=loaded\nActiveState=inactive\nUnitFileState=disabled\n')
             return Mock(returncode=1, stdout=b'')
         with tempfile.TemporaryDirectory() as directory, patch.object(remote, 'ROOT', Path(directory)), patch.object(remote, 'compose', side_effect=compose), patch.object(remote, 'run', side_effect=run), patch.object(remote, 'counts', return_value={'events': 5}), patch.object(remote, 'backup_module', return_value=module), patch.object(remote.time, 'sleep'):
             (Path(directory) / 'stack.env').write_text('CLICKHOUSE_DB=rybbit')
@@ -157,7 +159,8 @@ class RemoteTests(unittest.TestCase):
     def test_fence_blocks_if_backup_service_or_timer_remains_active(self):
         for active in ('rybbit-backup.timer', 'rybbit-backup.service'):
             def run(*args, **kwargs):
-                return Mock(returncode=0 if args[:2] == ('systemctl', 'is-active') and args[-1] == active else 1)
+                state = 'active' if args[:2] == ('systemctl', 'show') and args[2] == active else 'inactive'
+                return Mock(returncode=0, stdout=f'LoadState=loaded\nActiveState={state}\nUnitFileState=disabled\n'.encode())
             with self.subTest(active=active), patch.object(remote, 'run', side_effect=run), patch.object(remote, 'compose') as compose:
                 with self.assertRaisesRegex(RuntimeError, 'backup unit remains active'):
                     remote.fence()
@@ -172,6 +175,21 @@ class RemoteTests(unittest.TestCase):
             configure.assert_not_called()
             compose.assert_not_called()
             backup.assert_not_called()
+
+    def test_freeze_refuses_failed_timer_disable_before_stopping_ingress(self):
+        for status, output in ((0, b'LoadState=loaded\nActiveState=inactive\nUnitFileState=enabled\n'),
+                               (0, b'LoadState=loaded\nActiveState=active\nUnitFileState=disabled\n'),
+                               (1, b''), (0, b'')):
+            with self.subTest(status=status, output=output), patch.object(remote, 'run', return_value=Mock(returncode=status, stdout=output)), patch.object(remote, 'compose') as compose:
+                with self.assertRaisesRegex(RuntimeError, 'backup'):
+                    remote.freeze(self.config())
+                compose.assert_not_called()
+
+    def test_backup_stop_accepts_verified_inactive_and_fresh_missing_units(self):
+        for output in (b'LoadState=loaded\nActiveState=inactive\nUnitFileState=disabled\n',
+                       b'LoadState=not-found\nActiveState=inactive\nUnitFileState=\n'):
+            with self.subTest(output=output), patch.object(remote, 'run', return_value=Mock(returncode=0, stdout=output)):
+                remote.stop_backups()
 
     def reset_receipt(self, root, complete=False):
         paths = [Path('/var/lib/rybbit') / name for name in ('postgres', 'clickhouse', 'redis')]

@@ -192,9 +192,17 @@ deployment `40bddaf7-f261-4e19-9c8b-02a935edc7b3` at `178.105.137.48`.
   ownership transfer. Production DNS has not been adopted or switched, source
   writes have not been fenced, and source retirement is not authorized.
 
-Rybbit validation: 133 tests and 79 subtests, package build. Pinned PocketDeploy
+Rybbit validation: 135 tests and 85 subtests, package build. Pinned PocketDeploy
 implementation `35529af2b3642f530e8bc2a27ecefecff28f4797` fixes stale DNS write
 journals after lost-response recovery; its 914 tests/four subtests, build and
 36 copied-launcher checks passed. Alice's 42 tests passed. Walter's unchanged
 inline-SSH migration test fails with both the previous and new dependency; its
 other 161 tests/47 subtests passed with one skipped. Walter's pin was unchanged.
+
+After browser acceptance, the published portable controller successfully reset
+the exercised staging databases a second time, preserving them in quarantine,
+and prepared clean database-only state with retained source secrets. Target
+application ingress/writers and backups are now fenced for the final archive;
+staging is intentionally unavailable. A repeated preparation passed with the
+final service-state verification: timer disabled, timer/service inactive, and
+unexpected systemctl inspection failures refused. Production remains online.

@@ -118,12 +118,24 @@ CONFIG_XML = '''<clickhouse><listen_host>0.0.0.0</listen_host>
     'session_log', 'part_log', 'latency_log', 'processors_profile_log')) + '</clickhouse>\n'
 
 
-def fence():
+def stop_backups():
     run('systemctl', 'disable', '--now', 'rybbit-backup.timer', check=False)
     run('systemctl', 'stop', 'rybbit-backup.service', check=False)
     for unit in ('rybbit-backup.timer', 'rybbit-backup.service'):
-        if run('systemctl', 'is-active', '--quiet', unit, check=False).returncode == 0:
-            raise RuntimeError('backup unit remains active')
+        result = run('systemctl', 'show', unit,
+                     '--property=LoadState,ActiveState,UnitFileState', check=False)
+        fields = dict(line.split('=', 1) for line in result.stdout.decode().splitlines() if '=' in line)
+        if (result.returncode or set(fields) != {'LoadState', 'ActiveState', 'UnitFileState'}
+                or fields['LoadState'] not in ('loaded', 'masked', 'not-found')
+                or fields['ActiveState'] not in ('inactive', 'failed')):
+            raise RuntimeError('backup unit remains active or could not be verified')
+        if (unit.endswith('.timer') and fields['LoadState'] != 'not-found'
+                and fields['UnitFileState'] not in ('disabled', 'masked', 'masked-runtime')):
+            raise RuntimeError('backup timer remains enabled or could not be verified')
+
+
+def fence():
+    stop_backups()
     compose('stop', 'caddy', 'backend', 'client')
 
 
@@ -139,10 +151,7 @@ def configure(request):
         run('hostnamectl', 'set-hostname', config['compute-name'])
     STAGE = 'configuration'
     # Avoid changing files/credentials beneath a scheduled backup.
-    run('systemctl', 'disable', '--now', 'rybbit-backup.timer', check=False)
-    run('systemctl', 'stop', 'rybbit-backup.service', check=False)
-    if run('systemctl', 'is-active', '--quiet', 'rybbit-backup.service', check=False).returncode == 0:
-        raise RuntimeError('backup service remains active')
+    stop_backups()
     for directory, mode in [(str(ROOT), 0o755), (config['postgres-data-dir'], 0o700),
                             (config['clickhouse-data-dir'], 0o755), (config['redis-data-dir'], 0o700),
                             (config['rybbit-backup-dir'], 0o700),
@@ -260,10 +269,7 @@ def freeze(config):
     global STAGE
     STAGE = 'freeze-ingress'
     started = int(time.time())
-    run('systemctl', 'disable', '--now', 'rybbit-backup.timer', check=False)
-    run('systemctl', 'stop', 'rybbit-backup.service', check=False)
-    if run('systemctl', 'is-active', '--quiet', 'rybbit-backup.service', check=False).returncode == 0:
-        raise RuntimeError('backup service remains active')
+    stop_backups()
     compose('stop', '--timeout', '45', 'caddy')
     module = backup_module()
     database = module.db_name(module.read_env((ROOT / 'stack.env').read_text()), 'CLICKHOUSE_DB')
