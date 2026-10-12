@@ -135,3 +135,10 @@ before any fencing or provider mutation. Regression suite: 82 tests and four
 subtests passed; package build passed. See [DNS cutover assessment](dns-cutover.md)
 for the remaining transition work. Production still resolves through its
 existing proxied A record to `2.31.12.220`; public health returned 200.
+
+A backup of the fresh empty installation also passed PostgreSQL scratch recovery,
+R2 upload and download verification. Historical R2 archives were retained;
+normal profile-prefix retention remains enabled for future scheduled backups.
+
+The portable launcher is now pinned to published guard implementation `6cf30d3`;
+its copied help/configuration/missing-state checks passed without provider calls.
