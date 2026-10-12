@@ -217,6 +217,12 @@ def restore(config, current, operation, archive, checksum):
 def delete(config, deployment, current, operation):
     if deployment['compute-prevent-destroy']:
         raise DeployError('Deletion protection is enabled; change colors.yml explicitly.')
+    expected_dns = 'dns:A:' + config['rybbit-host']
+    for resource in current.state.resources():
+        if resource['kind'] in current.cloud.resource_kinds:
+            continue
+        if resource['kind'] != 'cloudflare-dns' or resource['name'] != expected_dns:
+            raise DeployError('Recorded resources outside the current hostname require explicit retirement or retention before deletion.')
     aliases(config, current.host, remove=True, check_only=True)
     service = dns(config, current.state)
     service.plan_delete()

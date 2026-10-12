@@ -13,6 +13,7 @@ from rybbit import controller
 def current(tmp_path):
     with State(tmp_path / '.state.sqlite', 'synthetic', {}, create=True) as state:
         host, cloud = Mock(), Mock()
+        cloud.resource_kinds = frozenset({'hcloud-server', 'hcloud-firewall', 'hcloud-primary-ip'})
         pub = tmp_path / 'operator.pub'
         pub.write_text('ssh-ed25519 synthetic')
         host.pub = pub
@@ -169,7 +170,7 @@ def test_delete_resumes_absent_compute_without_ssh(current, monkeypatch):
     current.cloud.connection.side_effect = AssertionError('absent server cannot be contacted')
     cleanup = Mock(return_value={'deleted': True})
     monkeypatch.setattr(controller, 'delete_compute', cleanup)
-    assert controller.delete({}, {'compute-prevent-destroy': False}, current, 'operation') == {'deleted': True}
+    assert controller.delete({'rybbit-host': 'test.example.com'}, {'compute-prevent-destroy': False}, current, 'operation') == {'deleted': True}
     current.cloud.connection.assert_not_called()
     controller.remote.assert_not_called()
     service.delete.assert_called_once()
@@ -184,7 +185,7 @@ def test_delete_absent_requires_exact_receipt_and_fence(current, monkeypatch, ev
     current.state.set_meta('rybbit-delete-fence', evidence)
     current.cloud.plan_delete.return_value = [{'resource': 'compute', 'action': 'absent', 'id': '123', 'state': None}]
     with pytest.raises(DeployError):
-        controller.delete({}, {'compute-prevent-destroy': False}, current, 'operation')
+        controller.delete({'rybbit-host': 'test.example.com'}, {'compute-prevent-destroy': False}, current, 'operation')
     service.delete.assert_not_called()
 
 
@@ -269,3 +270,34 @@ def test_alias_readonly_preflight_does_not_create_files(tmp_path, monkeypatch):
     assert controller.aliases({'profile': 'synthetic'}, host, {'ip': '192.0.2.1', 'user': 'ubuntu'}, check_only=True) is False
     assert not (home / '.ssh/config.d').exists()
     assert main.read_text() == 'Include config.d/*\n'
+
+
+@pytest.mark.parametrize('name,kind', [
+    ('dns:A:old.example.com', 'cloudflare-dns'),
+    ('dns:A:test.example.com', 'resend-domain'),
+    ('other-service', 'unknown-service')])
+def test_delete_rejects_unmanaged_resource_before_any_mutation(current, monkeypatch, name, kind):
+    service = setup(monkeypatch)
+    current.state.put_resource('compute', 'hcloud-server', '123', {}, owned=True)
+    current.state.put_resource(name, kind, '456', {}, owned=True)
+    cleanup = Mock()
+    monkeypatch.setattr(controller, 'delete_compute', cleanup)
+    with pytest.raises(DeployError, match='explicit retirement or retention'):
+        controller.delete({'rybbit-host': 'test.example.com'}, {'compute-prevent-destroy': False}, current, 'operation')
+    controller.aliases.assert_not_called()
+    controller.dns.assert_not_called()
+    controller.remote.assert_not_called()
+    service.delete.assert_not_called()
+    current.cloud.delete.assert_not_called()
+    cleanup.assert_not_called()
+
+
+def test_delete_current_dns_passes_resource_preflight(current, monkeypatch):
+    service = setup(monkeypatch)
+    current.state.put_resource('dns:A:test.example.com', 'cloudflare-dns', '456', {}, owned=True)
+    current.cloud.plan_delete.return_value = []
+    cleanup = Mock(return_value={'deleted': True})
+    monkeypatch.setattr(controller, 'delete_compute', cleanup)
+    assert controller.delete({'rybbit-host': 'test.example.com'}, {'compute-prevent-destroy': False}, current, 'operation')['deleted']
+    service.delete.assert_called_once_with('operation')
+    cleanup.assert_called_once()

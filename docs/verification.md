@@ -1,10 +1,11 @@
 # Verification — 12 October 2026
 
-## New Python deployment: rehearsal
+## Initial Python deployment: completed rehearsal (subsequently deleted)
 
 Profile `rybbit-hcloud`, Hetzner server `169927907` at `178.105.137.48`,
 CAX21 in nbg1. Owned firewall `11788632`; explicit owned primary IPv4 `155049690`.
-The application is served at `https://rybbit-hcloud.getcolors.ai`.
+This initial server served `https://rybbit-hcloud.getcolors.ai` until the
+authorized deletion/recreation test below.
 Production `https://rybbit.getcolors.ai` remains on the original
 `rybbit-hetzner` server. This is a rehearsal, not completed production cutover.
 
@@ -100,3 +101,37 @@ been made. Database backup verification is separate from controller recovery.
 Final production freeze/snapshot, authenticated application/replay checks,
 production DNS ownership transfer and old-server retirement are not claimed by
 this rehearsal. See `migration-write-pause.md` for queue-drain limitations.
+
+## Deletion and fresh recreation test
+
+The user deferred production migration and authorized deletion/recreation of
+`rybbit-hcloud`. Production and its DNS remain untouched.
+
+- The pinned launcher refused deletion with destruction protection enabled.
+- After explicitly disabling protection for this test, deletion fenced the
+  application and removed its staging DNS record, server `169927907`, firewall
+  `11788632` and primary IPv4 `155049690`. A second deletion succeeded idempotently.
+- Independent provider-list checks confirmed those three IDs were absent.
+  Cloudflare confirmed the staging record was absent. Controller state had zero
+  resources and zero pending steps; owned SSH files and alias were removed.
+- Archived the complete finished SQLite receipt privately, without editing its
+  rows. Retained R2 archives and source controller/state were not deleted.
+- Re-enabled destruction protection and initialized fresh ownership UUID
+  `40bddaf7-f261-4e19-9c8b-02a935edc7b3`, with new SSH authority. Fresh convergence
+  uses no source secrets or database restoration inputs.
+
+Fresh server `169932721`, firewall `11788843`, primary IPv4 `155053924`. Hetzner
+reassigned `178.105.137.48`; the provider identities and controller authority
+are new. Fresh convergence and repeated convergence both passed. All eight
+aggregate counts were zero: users, organizations, sites, events and replay
+aggregates. HTTPS health/login returned 200. Acceptance verified health and
+reported ingestion `not-configured` because this empty installation has no
+organization; no source data or secrets were restored. Existing-state enforcement
+and destruction protection are both enabled again, leaving `colors.yml` unchanged.
+
+The DNS assessment found a partial-deletion hazard after changing the managed
+hostname. A new preflight guard refuses unexpected recorded DNS/service resources
+before any fencing or provider mutation. Regression suite: 82 tests and four
+subtests passed; package build passed. See [DNS cutover assessment](dns-cutover.md)
+for the remaining transition work. Production still resolves through its
+existing proxied A record to `2.31.12.220`; public health returned 200.

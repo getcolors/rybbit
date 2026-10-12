@@ -66,6 +66,9 @@ an already exercised target. The restore command does not merge databases.
 
 ## Final transfer
 
+Migration is currently deferred. Read [the DNS cutover assessment](dns-cutover.md)
+for required hostname/TLS sequencing and ownership gaps before any transfer.
+
 Within authorized migration scope, schedule the final write interruption and
 disable the source controller's DNS automation. Drain application writers,
 in-flight ingestion and backup jobs. Verify the fence, capture a final
