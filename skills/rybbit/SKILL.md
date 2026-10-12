@@ -63,3 +63,28 @@ Keep backup resources and recovery material until retirement is verified.
 
 Report the profile, concrete checks and remaining limitations. Never claim a
 production migration from staging deployment or mocked tests alone.
+
+### Explicit hostname and DNS transfer
+
+Use `application-converge` to reconcile existing compute without DNS changes;
+it starts application writers with backups disabled. `readiness` checks direct
+origin HTTPS, configured hostname, certificate and health without ingestion.
+Prepare production certificates separately and keep source writers fenced for
+final transfer. `dns-evidence` emits exact record evidence; save its result
+object in a private owned JSON file. After disabling/draining the previous DNS
+manager, run `dns-adopt --evidence-file FILE --previous-dns-manager-disabled`.
+Adoption changes ownership only; repeat with original evidence on interruption.
+`dns-switch` checks fresh origin readiness and preserves adopted proxy/TTL while
+routing to the owned target. Retire old staging with
+`dns-retire --hostname OLD_HOST --record-id EXACT_RECORDED_ID`.
+See README.md and docs/dns-cutover.md for migration scope and independent data,
+TLS, authentication and replay acceptance requirements.
+
+For an explicitly authorized rehearsal-target reset, `reset-target` requires
+`--reset-id UUID`, `--expected-machine-id MACHINE_ID`,
+`--expected-instance-id PROVIDER_ID` and `--expected-deployment-id DEPLOYMENT_UUID`. It accepts only the exact owned
+`rybbit-hcloud` staging target before DNS adoption, fences it, removes stopped
+containers, and quarantines databases,
+settings and initialization/restore receipts. Reuse the same reset ID after an
+interruption; do not delete receipts or quarantine to force progress. Prepare
+retained source secrets again before final restoration.

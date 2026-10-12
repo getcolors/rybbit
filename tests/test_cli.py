@@ -44,3 +44,25 @@ def test_validate_does_not_open_state(monkeypatch):
 def test_json_usage_error_has_nonzero_status(capsys):
     assert cli.main(['unknown', '--json']) == 2
     assert json.loads(capsys.readouterr().out)['ok'] is False
+
+
+@pytest.mark.parametrize('args', [
+    ['dns-adopt'], ['dns-adopt', '--evidence-file', 'evidence'],
+    ['dns-adopt', '--previous-dns-manager-disabled'],
+    ['status', '--evidence-file', 'evidence'], ['status', '--previous-dns-manager-disabled'],
+    ['dns-retire'], ['dns-retire', '--hostname', 'old.example.com'],
+    ['status', '--hostname', 'old.example.com'], ['status', '--record-id', 'record']])
+def test_dns_arguments_checked_before_configuration(monkeypatch, args):
+    load = Mock(side_effect=AssertionError('offline argument check'))
+    monkeypatch.setattr(cli, 'load', load)
+    with pytest.raises(DeployError):
+        cli.execute(cli.parser().parse_args(args))
+    load.assert_not_called()
+
+
+@pytest.mark.parametrize('args', [['reset-target'], ['status', '--reset-id', 'id']])
+def test_reset_requires_all_explicit_identities_before_configuration(monkeypatch, args):
+    monkeypatch.setattr(cli, 'load', Mock(side_effect=AssertionError('offline validation')))
+    with pytest.raises(DeployError):
+        cli.execute(cli.parser().parse_args(args))
+    cli.load.assert_not_called()

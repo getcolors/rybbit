@@ -121,6 +121,9 @@ CONFIG_XML = '''<clickhouse><listen_host>0.0.0.0</listen_host>
 def fence():
     run('systemctl', 'disable', '--now', 'rybbit-backup.timer', check=False)
     run('systemctl', 'stop', 'rybbit-backup.service', check=False)
+    for unit in ('rybbit-backup.timer', 'rybbit-backup.service'):
+        if run('systemctl', 'is-active', '--quiet', unit, check=False).returncode == 0:
+            raise RuntimeError('backup unit remains active')
     compose('stop', 'caddy', 'backend', 'client')
 
 
@@ -195,6 +198,44 @@ def wait_health():
             return
         time.sleep(5)
     raise RuntimeError('backend health check failed')
+
+
+def readiness(config):
+    """Check origin TLS and application health without DNS or tracking writes."""
+    host = config['rybbit-host']
+    if not isinstance(host, str) or len(host) > 253 or not all(
+        re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?', label)
+        for label in host.split('.')
+    ):
+        raise ValueError('invalid readiness hostname')
+    settings = read_env((ROOT / 'stack.env').read_text())
+    if settings.get('DOMAIN_NAME') != host or settings.get('BASE_URL') != 'https://' + host:
+        raise RuntimeError('configured application hostname does not match')
+    # Check running processes, not only files that may have changed since startup.
+    for service, keys in (('backend', ('DOMAIN_NAME', 'BASE_URL')),
+                          ('client', ('DOMAIN_NAME', 'BASE_URL', 'NEXT_PUBLIC_BACKEND_URL'))):
+        expected = {key: host if key == 'DOMAIN_NAME' else 'https://' + host for key in keys}
+        script = 'const e=JSON.parse(process.argv[1]);process.exit(Object.entries(e).every(([k,v])=>process.env[k]===v)?0:1)'
+        if compose('exec', '-T', service, 'node', '-e', script, json.dumps(expected), check=False).returncode:
+            raise RuntimeError('running application hostname does not match')
+    # --resolve preserves the real Host and TLS SNI while selecting this origin.
+    # Disable curl configuration and proxies; do not follow redirects or weaken
+    # certificate verification. Only the numeric HTTP status leaves curl.
+    result = run('curl', '-q', '--silent', '--show-error', '--noproxy', '*',
+                 '--resolve', host + ':443:127.0.0.1', '--proto', '=https',
+                 '--connect-timeout', '10', '--max-time', '30',
+                 '--output', '/dev/null', '--write-out', '%{http_code}',
+                 '--url', 'https://' + host + '/api/health', check=False)
+    if result.returncode != 0 or result.stdout.strip() != b'200':
+        raise RuntimeError('origin TLS or health check failed')
+    frontend = run('curl', '-q', '--silent', '--show-error', '--noproxy', '*',
+                   '--resolve', host + ':443:127.0.0.1', '--proto', '=https',
+                   '--connect-timeout', '10', '--max-time', '30',
+                   '--output', '/dev/null', '--write-out', '%{http_code}',
+                   '--url', 'https://' + host + '/', check=False)
+    if frontend.returncode != 0 or frontend.stdout.strip() != b'200':
+        raise RuntimeError('origin frontend health check failed')
+    return {'ok': True, 'ready': True, 'tls': True, 'health': True}
 
 
 def counts(config):
@@ -307,10 +348,53 @@ def acceptance(config):
     raise RuntimeError('unique acceptance event was not found')
 
 
+def require_completed_reset():
+    """Do not initialize or write application data across an interrupted reset."""
+    path = ROOT / 'reset.json'
+    if not path.exists() and not path.is_symlink():
+        return
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError()
+        receipt = json.loads(path.read_text())
+        if (not isinstance(receipt, dict)
+                or set(receipt) != {'reset_id', 'machine_id', 'profile', 'complete', 'containers_removed', 'items'}
+                or type(receipt['complete']) is not bool
+                or type(receipt['containers_removed']) is not bool
+                or receipt['profile'] != 'rybbit-hcloud'
+                or not isinstance(receipt['reset_id'], str)
+                or str(uuid.UUID(receipt['reset_id'])) != receipt['reset_id']
+                or not isinstance(receipt['machine_id'], str)
+                or not re.fullmatch(r'[0-9a-f]{32}', receipt['machine_id'])
+                or not isinstance(receipt['items'], list) or len(receipt['items']) != 6):
+            raise ValueError()
+        expected = [Path('/var/lib/rybbit') / name for name in ('postgres', 'clickhouse', 'redis')]
+        expected += [ROOT / name for name in ('stack.env', 'application-started', 'restore.json')]
+        for item, source in zip(receipt['items'], expected):
+            if (not isinstance(item, dict)
+                    or set(item) != {'source', 'name', 'present', 'device', 'inode'}
+                    or item['source'] != str(source) or item['name'] != source.name
+                    or type(item['present']) is not bool):
+                raise ValueError()
+            if item['present']:
+                if any(type(item[key]) is not int or item[key] < 0 for key in ('device', 'inode')):
+                    raise ValueError()
+            elif item['device'] is not None or item['inode'] is not None:
+                raise ValueError()
+        if receipt['complete'] is True and receipt['containers_removed'] is not True:
+            raise ValueError()
+    except (ValueError, TypeError, KeyError, OSError):
+        raise RuntimeError('invalid reset receipt blocks application mutation; preserve reset evidence') from None
+    if receipt['complete'] is not True:
+        raise RuntimeError('incomplete target reset blocks application mutation; resume reset-target with the original ID')
+
+
 def main(request):
     global STAGE
     action = request['action']
     config = request.get('config', {})
+    if action in ('prepare', 'converge', 'restore', 'backup', 'acceptance'):
+        require_completed_reset()
     if action == 'status':
         result = compose('ps', '--format', 'json', check=False)
         services = []
@@ -320,6 +404,14 @@ def main(request):
             services = [{key: row.get(key) for key in ('Service', 'State', 'Health')} for row in rows]
         return {'ok': result.returncode == 0, 'services': services,
                 'backup_timer': run('systemctl', 'is-active', '--quiet', 'rybbit-backup.timer', check=False).returncode == 0}
+    if action == 'reset-target':
+        STAGE = 'reset-target'
+        namespace = {'__name__': 'rybbit_reset'}
+        exec(compile(request['reset_program'], '<trusted-reset-program>', 'exec'), namespace)
+        return namespace['reset_target'](config, request, fence=fence, compose=compose)
+    if action == 'readiness':
+        STAGE = 'readiness'
+        return readiness(config)
     if action == 'freeze':
         return freeze(config)
     if action in ('stop', 'fence'):

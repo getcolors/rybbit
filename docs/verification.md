@@ -142,3 +142,59 @@ normal profile-prefix retention remains enabled for future scheduled backups.
 
 The portable launcher is now pinned to published guard implementation `6cf30d3`;
 its copied help/configuration/missing-state checks passed without provider calls.
+
+## Cutover preparation and second rehearsal — 12 October 2026
+
+The user authorized migration preparation with subagents, retaining a final
+production write-pause/routing approval gate. Production routing and writers
+remain on server `169322464`; target identity remains server `169932721`,
+deployment `40bddaf7-f261-4e19-9c8b-02a935edc7b3` at `178.105.137.48`.
+
+- Saved the target controller's six recovery files and SQLite checkpoint to
+  the default Vault. Separately saved retained source application secrets,
+  source node/DNS backend snapshots, encrypted machine authority and the exact
+  required source credential bindings. File contents were not exposed.
+- Implemented explicit application-only reconciliation, origin readiness,
+  DNS evidence/adoption/switch/retirement and staging-only reset. Reset verifies
+  deployment/provider/machine identities, removes stopped containers, and
+  quarantines database directories and receipts without deleting them. It
+  preserves Caddy storage and backups. Pending or malformed reset receipts block
+  application mutations; reset is forbidden once DNS adoption begins.
+- Live reset, database-only preparation with retained source secrets, and
+  restoration succeeded. Reset took 3.7 seconds, preparation 17.3 seconds and
+  archive transfer/restoration 5.1 seconds. These are individual rehearsal
+  timings, not a measured production interruption.
+- The fresh live-source rehearsal archive restored 39 PostgreSQL tables and
+  seven ClickHouse tables: two users, one organization, three sites, 7,855
+  events, 63,493 replay rows/events, 1,037 logical replay sessions and
+  430,600,572 compressed replay bytes. Source writers continued during capture;
+  this is not a final cross-database-consistent snapshot.
+- All six source/target image digests matched. Privately transferred the existing
+  production Caddy-managed certificate/key/metadata to target storage, retaining
+  automatic certificate management. The certificate SAN covers production and
+  expires 22 November 2026. Configured production hostname on the target without
+  DNS mutation: running application settings, direct origin TLS/SNI, backend
+  health and frontend passed. An external direct-origin HTTPS probe also returned
+  200 with normal certificate verification. Restored the staging hostname.
+- Cloudflare TLS-setting read returned HTTP 403 with the existing credential;
+  the setting was not changed. Public production health remained HTTP 200.
+- The user verified staging login, historical analytics and replay playback in
+  their browser. A unique synthetic ingestion event arrived exactly once.
+- A new target backup uploaded and verified successfully. Independently
+  downloaded it and restored scratch PostgreSQL and ClickHouse databases:
+  39 and seven tables respectively, matching the above aggregates plus the
+  single synthetic event (7,856 total). Scratch databases were removed.
+- Source and target rehearsal archives were independently copied and verified
+  under `migration-retained/2026-10-12/` in the existing backup bucket, outside
+  normal profile-prefix retention. No bucket was created.
+- Source/controller read-only inventory found no scheduled DNS manager; legacy
+  explicit create/delete entrypoints still require locking and disabling before
+  ownership transfer. Production DNS has not been adopted or switched, source
+  writes have not been fenced, and source retirement is not authorized.
+
+Rybbit validation: 133 tests and 79 subtests, package build. Pinned PocketDeploy
+implementation `35529af2b3642f530e8bc2a27ecefecff28f4797` fixes stale DNS write
+journals after lost-response recovery; its 914 tests/four subtests, build and
+36 copied-launcher checks passed. Alice's 42 tests passed. Walter's unchanged
+inline-SSH migration test fails with both the previous and new dependency; its
+other 161 tests/47 subtests passed with one skipped. Walter's pin was unchanged.

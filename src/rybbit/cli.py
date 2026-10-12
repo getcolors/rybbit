@@ -15,6 +15,7 @@ from .config import load
 from . import controller
 
 COMMANDS = ('init', 'validate', 'plan', 'prepare', 'converge', 'status', 'acceptance', 'backup', 'counts',
+            'reset-target', 'application-converge', 'readiness', 'dns-evidence', 'dns-adopt', 'dns-switch', 'dns-retire',
             'fence', 'freeze', 'restore', 'ssh', 'ssh-install', 'ssh-uninstall', 'delete', 'vault-save', 'vault-restore')
 
 class Parser(argparse.ArgumentParser):
@@ -25,9 +26,9 @@ def parser():
     p = Parser(prog='rybbit', description='Rybbit on Hetzner using Python and SQLite.', allow_abbrev=False)
     p.add_argument('command', choices=COMMANDS)
     p.add_argument('-f', '--file', default='colors.yml')
-    for flag in ('dry-run', 'json', 'quiet', 'verbose', 'overwrite', 'no-backups'):
+    for flag in ('dry-run', 'json', 'quiet', 'verbose', 'overwrite', 'no-backups', 'previous-dns-manager-disabled'):
         p.add_argument('--'+flag, action='store_true')
-    for flag in ('ssh-command', 'document', 'version', 'destination', 'archive', 'sha256', 'stack-env-file'):
+    for flag in ('ssh-command', 'document', 'version', 'destination', 'archive', 'sha256', 'stack-env-file', 'evidence-file', 'hostname', 'record-id', 'reset-id', 'expected-machine-id', 'expected-instance-id', 'expected-deployment-id'):
         p.add_argument('--'+flag)
     return p
 
@@ -50,6 +51,19 @@ def execute(args):
         raise DeployError('--stack-env-file requires prepare before database initialization.')
     if args.no_backups and args.command != 'converge':
         raise DeployError('--no-backups requires converge.')
+    if (args.evidence_file or args.previous_dns_manager_disabled) and args.command != 'dns-adopt':
+        raise DeployError('Adoption options require dns-adopt.')
+    if args.command == 'dns-adopt' and (not args.evidence_file or not args.previous_dns_manager_disabled):
+        raise DeployError('dns-adopt requires --evidence-file and --previous-dns-manager-disabled.')
+    if (args.hostname or args.record_id) and args.command != 'dns-retire':
+        raise DeployError('Retirement options require dns-retire.')
+    if args.command == 'dns-retire' and (not args.hostname or not args.record_id):
+        raise DeployError('dns-retire requires --hostname and --record-id.')
+    reset_options = (args.reset_id, args.expected_machine_id, args.expected_instance_id, args.expected_deployment_id)
+    if any(reset_options) and args.command != 'reset-target':
+        raise DeployError('Reset identity options require reset-target.')
+    if args.command == 'reset-target' and not all(reset_options):
+        raise DeployError('reset-target requires explicit reset, machine, instance and deployment IDs.')
     config, deployment = load(args.file)
     root = Path(deployment['_root'])
     if args.command == 'validate':
@@ -61,7 +75,7 @@ def execute(args):
             return vault.restore(deployment, destination, args.document, args.version, args.overwrite)
     if args.command == 'ssh-uninstall':
         return {'removed': controller.aliases(config, Host(deployment, None, root), remove=True)}
-    read_only = args.command in ('plan', 'status', 'counts') or args.dry_run
+    read_only = args.command in ('plan', 'status', 'counts', 'readiness', 'dns-evidence') or args.dry_run
     with session(deployment, read_only=read_only, allow_create=args.command in ('init','plan','prepare','converge')) as current:
         cloud, host, state = current.cloud, current.host, current.state
         if args.command == 'init':
@@ -74,6 +88,10 @@ def execute(args):
             if observed.get('compute'):
                 result['application'] = controller.remote(host, cloud.connection(), config, args.command)
             return result
+        if args.command == 'dns-evidence':
+            return controller.dns(config, state).evidence(config['rybbit-host'])
+        if args.command == 'readiness':
+            return controller.remote(host, cloud.connection(), config, 'readiness')
         if read_only:
             services = controller.dns(config, state)
             return {'compute': cloud.plan_delete() if args.command == 'delete' else cloud.plan(),
@@ -90,6 +108,16 @@ def execute(args):
                 secret = controller.private_text(args.stack_env_file) if args.stack_env_file else None
                 return controller.converge(config, deployment, current, operation,
                     prepare=args.command == 'prepare', stack_env=secret, enable_backups=not args.no_backups)
+            if args.command == 'reset-target':
+                return controller.reset_target(config, current, operation, *reset_options)
+            if args.command == 'application-converge':
+                return controller.application_converge(config, current, operation)
+            if args.command == 'dns-adopt':
+                return controller.dns_adopt(config, current, operation, args.evidence_file, args.previous_dns_manager_disabled)
+            if args.command == 'dns-switch':
+                return controller.dns_switch(config, current, operation)
+            if args.command == 'dns-retire':
+                return controller.dns_retire(config, current, operation, args.hostname, args.record_id)
             if args.command == 'restore':
                 return controller.restore(config, current, operation, args.archive, args.sha256)
             if args.command in ('fence', 'freeze', 'backup', 'acceptance'):

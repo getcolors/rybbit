@@ -64,29 +64,66 @@ on the staging target do not authorize final DNS transfer or source retirement.
 Use a fresh final target/database state rather than merging source data into
 an already exercised target. The restore command does not merge databases.
 
+## Return the rehearsed target to clean databases
+
+After independently retaining the rehearsal archive and validation evidence,
+use `reset-target` to quarantine the exercised target instead of deleting
+receipts or merging databases. Supply all four exact identifiers:
+
+```sh
+uv run rybbit reset-target --reset-id RESET_UUID \
+  --expected-machine-id MACHINE_ID --expected-instance-id PROVIDER_ID \
+  --expected-deployment-id DEPLOYMENT_UUID
+```
+
+The command requires the owned `rybbit-hcloud` deployment, its exact live
+compute and machine identities, and the staging hostname. Any DNS adoption
+receipt or non-staging DNS resource blocks reset, including after a production
+hostname transition. Reset is not a production rollback command.
+
+Reset fences the application and backup timer, verifies/removes stopped
+application containers, then quarantines the PostgreSQL, ClickHouse and Redis
+directories plus `stack.env`, `application-started` and `restore.json` beneath
+`/var/lib/rybbit/reset-quarantine/RESET_UUID`. It retains controller state,
+SSH authority, archives and Caddy certificate state. A durable manifest tracks
+interruption recovery; repeat with the same reset UUID. Preparation, convergence,
+restoration, backup and acceptance refuse pending or malformed reset receipts
+before mutating application state. Never remove receipts
+or quarantined data to force progress. Keep sufficient disk space for both the
+quarantine and the next restore.
+
+Run `prepare --stack-env-file /protected/path/stack.env` again with retained
+source secrets before initializing clean target databases. Keep the target
+fenced until the final archive is restored and verified. Recheck application
+hostname/TLS readiness after the final restore. Retain quarantine independently
+until an explicit cleanup decision.
+
 ## Final transfer
 
-Migration is currently deferred. Read [the DNS cutover assessment](dns-cutover.md)
-for required hostname/TLS sequencing and ownership gaps before any transfer.
+Follow [explicit DNS cutover](dns-cutover.md). Complete recovery checkpoints,
+full rehearsal, authenticated login/replay checks, TLS preparation and a
+measured downtime estimate before the final production approval gate.
 
-Within authorized migration scope, schedule the final write interruption and
-disable the source controller's DNS automation. Drain application writers,
-in-flight ingestion and backup jobs. Verify the fence, capture a final
-consistent archive and record its digest and aggregate counts.
+After approval, disable and drain legacy DNS automation and privately snapshot
+its exact backend. Fence source ingress and application writers and stop/drain
+scheduled backup jobs. Verify no second writer remains, allow in-flight work
+to finish, then capture the final consistent archive, digest and aggregate
+counts. The `freeze` receipt reports observed count stability but explicitly
+does not prove queue depth; establish ingestion drain independently.
 
-Restore the final archive using the proven target procedure and verify the
-result before enabling target writers. Preserve the production Cloudflare
-record's exact zone ID, record ID, source address, proxy setting and TTL with
-its settings fingerprint. PocketDeploy's explicit DNS adoption transfers only
-the ownership comment; subsequent convergence changes routing. Keep the old
-manager disabled after the transfer, including during retries.
+Restore into the clean fenced target using the rehearsed procedure; verify
+all aggregate counts. Configure the production hostname and prepared TLS with
+`application-converge`. This starts target writers with backups disabled, so
+keep source writers fenced. Run direct origin `readiness`, adopt the exact
+existing Cloudflare record while preserving its address/proxy/TTL, then run the
+separate explicit `dns-switch`. Ordinary convergence is not the initial switch.
 
-Validate production URLs, TLS, authentication, ingestion and fresh backups.
-Prevent requests still reaching the old origin from producing a second writer;
-keep it fenced or route it deliberately to the selected active origin. Record
-actual outcomes and retain source snapshots and controller recovery evidence
-before considering retirement. Production migration is incomplete until these
-steps have their own evidence.
+Verify public URLs, strict TLS, authenticated login, historical analytics,
+replay playback and fresh ingestion. Enable normal target backups and establish
+complete recovery evidence. Remove only the old DNS state binding, keep legacy
+DNS automation disabled, explicitly retire staging DNS and checkpoint the
+final target controller. Preserve source snapshots and source compute; their
+retirement requires a separate retention and authorization decision.
 
 ## Rollback and retirement
 

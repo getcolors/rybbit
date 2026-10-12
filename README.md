@@ -140,3 +140,43 @@ establish implemented behavior.
 ## License
 
 MIT License. Copyright (c) 2026 getcolors.
+
+## Explicit DNS transfer
+
+`application-converge` configures and starts the application on existing compute
+without provisioning compute or changing DNS. Backups stay disabled. This starts
+application writers; keep the source fenced for a final transfer.
+`readiness` verifies the configured origin hostname and certificate plus HTTPS
+health directly on the target. It performs no ingestion or DNS changes and does
+not prove authenticated login or replay playback.
+
+`dns-evidence` returns the exact allowlisted Cloudflare record evidence for the
+configured hostname. Save its result object (without the CLI reporting envelope)
+in a private owned JSON file. Disable and drain the old DNS manager, then use:
+
+```sh
+uv run rybbit dns-adopt --evidence-file /protected/dns-evidence.json --previous-dns-manager-disabled
+uv run rybbit dns-switch
+uv run rybbit dns-retire --hostname old-staging.example.com --record-id EXACT_RECORDED_ID
+```
+
+Adoption retains the source address, record ID, proxy setting and TTL; it changes
+only ownership. Retry adoption with the original evidence after interruption.
+`dns-switch` requires completed adoption and freshly verified origin readiness,
+then updates routing to owned compute while retaining the adopted proxy and TTL.
+Ordinary convergence refuses to switch an adopted source address implicitly.
+Staging retirement requires its exact recorded ID and cannot remove the current
+configured application hostname. Retiring a record is independent of compute
+retirement. These commands do not disable the old manager, prepare certificates,
+transfer databases, or establish application acceptance automatically.
+
+`reset-target` returns the rehearsal target to empty database directories by
+fencing/stopping it and quarantining its database directories and application
+initialization/restore receipts. It is restricted to `rybbit-hcloud` at its staging hostname before any DNS
+adoption or recorded production DNS ownership, and requires all four explicit
+identity arguments: `--reset-id UUID`,
+`--expected-machine-id MACHINE_ID`, `--expected-instance-id PROVIDER_ID`, and
+`--expected-deployment-id DEPLOYMENT_UUID`. Retry interruptions with the same
+reset ID. Retain the quarantine and recovery archives; prepare retained source
+secrets again before initialization and the final restore. Controller state,
+SSH authority and Caddy certificate state remain in place.

@@ -301,3 +301,131 @@ def test_delete_current_dns_passes_resource_preflight(current, monkeypatch):
     assert controller.delete({'rybbit-host': 'test.example.com'}, {'compute-prevent-destroy': False}, current, 'operation')['deleted']
     service.delete.assert_called_once_with('operation')
     cleanup.assert_called_once()
+
+
+def test_application_converge_never_mutates_dns_compute_and_disables_backups(current, monkeypatch):
+    service = setup(monkeypatch)
+    operation = current.state.begin_operation('application-converge', 'hash')
+    controller.application_converge({'rybbit-host': 'prod.example.com'}, current, operation)
+    controller.dns.assert_not_called()
+    current.cloud.converge.assert_not_called()
+    assert controller.remote.call_args.kwargs == {'enable_backups': False}
+
+
+def adoption(current):
+    host = 'prod.example.com'
+    evidence = {'host': host, 'zone': 'zone', 'record_id': 'record', 'ipv4': '192.0.2.2',
+                'proxied': False, 'ttl': 300, 'settings_sha256': 'a'*64}
+    current.state.put_resource('dns:A:' + host, 'cloudflare-dns', 'record', {}, owned=True)
+    current.state.set_meta('dns-adoption:dns:A:' + host,
+                           {'completed': True, 'evidence': evidence, 'body': {'proxied': False, 'ttl': 300}})
+    return {'rybbit-host': host}, evidence
+
+
+def test_dns_uses_retained_policy_on_every_convergence(current):
+    config, _ = adoption(current)
+    service = controller.dns(config, current.state)
+    assert service.proxied is False and service.ttl == 300
+
+
+def test_dns_switch_requires_adoption_before_readiness(current, monkeypatch):
+    setup(monkeypatch)
+    with pytest.raises(DeployError, match='adoption'):
+        controller.dns_switch({'rybbit-host': 'prod.example.com'}, current, 'op')
+    controller.remote.assert_not_called()
+
+
+def test_dns_switch_checks_fresh_readiness_before_every_retry(current, monkeypatch):
+    config, _ = adoption(current)
+    service = setup(monkeypatch)
+    controller.remote.side_effect = DeployError('unready')
+    with pytest.raises(DeployError, match='unready'):
+        controller.dns_switch(config, current, 'op')
+    service.converge.assert_not_called()
+    controller.remote.side_effect = None
+    service.converge.side_effect = [DeployError('lost response'), {'actions': []}]
+    with pytest.raises(DeployError, match='lost response'):
+        controller.dns_switch(config, current, 'op')
+    assert controller.dns_switch(config, current, 'retry') == {'actions': []}
+    assert controller.remote.call_count == 3
+    assert controller.remote.call_args.args[-1] == 'readiness'
+
+
+def test_ordinary_converge_cannot_bypass_explicit_switch(current, monkeypatch):
+    config, _ = adoption(current)
+    service = setup(monkeypatch)
+    service.evidence.return_value = {'ipv4': '192.0.2.2'}
+    with pytest.raises(DeployError, match='dns-switch'):
+        controller.converge(config, {}, current, 'op')
+    current.cloud.converge.assert_not_called()
+    controller.remote.assert_not_called()
+
+
+def test_adoption_passes_original_exact_evidence_without_routing(current, monkeypatch, tmp_path):
+    _, evidence = adoption(current)
+    service = setup(monkeypatch)
+    path = tmp_path / 'evidence.json'
+    path.write_text(json.dumps(evidence))
+    path.chmod(0o600)
+    config = {'rybbit-host': evidence['host']}
+    with pytest.raises(DeployError, match='Disable'):
+        controller.dns_adopt(config, current, 'op', path, False)
+    service.adopt.assert_not_called()
+    controller.dns_adopt(config, current, 'op', path, True)
+    assert service.adopt.call_args.args[-1] == {**evidence, 'previous_dns_manager_disabled': True}
+    service.converge.assert_not_called()
+
+
+def test_retire_exact_identity_and_interrupted_final_receipt(current, monkeypatch):
+    config = {'rybbit-host': 'prod.example.com'}
+    service = Mock()
+    monkeypatch.setattr(controller, 'CloudflareDNS', Mock(return_value=service))
+    current.state.put_resource('dns:A:stage.example.com', 'cloudflare-dns', 'old-record', {}, owned=True)
+    with pytest.raises(DeployError):
+        controller.dns_retire(config, current, 'op', 'stage.example.com', 'wrong-record')
+    service.delete.assert_not_called()
+    controller.dns_retire(config, current, 'op', 'stage.example.com', 'old-record')
+    # Simulate lost final response after library removed its resource.
+    current.state.db.execute("DELETE FROM resources WHERE name='dns:A:stage.example.com'")
+    current.state.db.commit()
+    current.state.set_meta('rybbit-dns-retired:stage.example.com', {'record_id': 'old-record', 'retired': False})
+    controller.dns_retire(config, current, 'retry', 'stage.example.com', 'old-record')
+    assert controller.dns_retire(config, current, 'retry2', 'stage.example.com', 'old-record')['retired']
+    assert service.delete.call_count == 2
+
+
+def test_reset_identity_fails_before_remote_and_records_exact_receipt(current, monkeypatch):
+    setup(monkeypatch)
+    reset_id = '12345678-1234-1234-1234-123456789abc'
+    machine_id = 'a' * 32
+    config = {'profile': 'rybbit-hcloud', 'rybbit-host': 'rybbit-hcloud.getcolors.ai'}
+    current.state.put_resource('compute', 'hcloud-server', '123', {}, owned=True)
+    args = (config, current, 'op', reset_id, machine_id, '123')
+    with pytest.raises(DeployError, match='deployment identity'):
+        controller.reset_target(*args, 'wrong')
+    controller.remote.assert_not_called()
+    with pytest.raises(DeployError, match='rybbit-hcloud'):
+        controller.reset_target({'profile': 'rybbit-hetzner'}, *args[1:], current.state.deployment_id)
+    controller.remote.assert_not_called()
+    operation = current.state.begin_operation('reset-target', 'hash')
+    controller.remote.return_value = {'ok': True, 'reset': True, 'reset_id': reset_id, 'quarantined': True}
+    result = controller.reset_target(config, current, operation, reset_id, machine_id, '123', current.state.deployment_id)
+    assert result['reset_id'] == reset_id
+    assert controller.remote.call_args.kwargs == {'reset_id': reset_id, 'expected_machine_id': machine_id}
+
+
+@pytest.mark.parametrize('adopted,hostname,extra_dns', [
+    (True, 'rybbit-hcloud.getcolors.ai', False),
+    (False, 'rybbit.getcolors.ai', False),
+    (False, 'rybbit-hcloud.getcolors.ai', True)])
+def test_reset_refuses_production_transition(current, monkeypatch, adopted, hostname, extra_dns):
+    setup(monkeypatch)
+    if adopted:
+        current.state.set_meta('dns-adoption:dns:A:rybbit.getcolors.ai', {'completed': False})
+    if extra_dns:
+        current.state.put_resource('dns:A:rybbit.getcolors.ai', 'cloudflare-dns', 'prod', {}, owned=True)
+    with pytest.raises(DeployError):
+        controller.reset_target({'profile': 'rybbit-hcloud', 'rybbit-host': hostname}, current, 'op',
+            '12345678-1234-1234-1234-123456789abc', 'a'*32, '123', current.state.deployment_id)
+    current.cloud.connection.assert_not_called()
+    controller.remote.assert_not_called()

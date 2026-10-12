@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 import stat
 import subprocess
+import uuid
 from pocketdeploy.common import DeployError
 from pocketdeploy.runtime import initialize, delete_compute
 from pocketdeploy.dns import CloudflareDNS
@@ -24,7 +25,9 @@ def private_text(filename):
 
 
 def dns(config, state):
-    return CloudflareDNS(config, state, [config['rybbit-host']])
+    receipt = state.get_meta('dns-adoption:dns:A:' + config['rybbit-host']) if state else None
+    policy = receipt['body'] if receipt else {'proxied': True, 'ttl': 1}
+    return CloudflareDNS(config, state, [config['rybbit-host']], proxied=policy['proxied'], ttl=policy['ttl'])
 
 
 def remote(host, connection, config, action, **extra):
@@ -33,6 +36,9 @@ def remote(host, connection, config, action, **extra):
     if action in ('prepare', 'converge'):
         payload['files'] = remote_program.render(c)
         payload['backup_credentials'] = backup_credentials()
+    if action == 'reset-target':
+        from . import reset
+        payload['reset_program'] = Path(reset.__file__).read_text()
     result = host.run_python(connection, Path(remote_program.__file__).read_text(), payload, timeout=1800)
     if not isinstance(result, dict) or result.get('ok') is not True:
         stage = result.get('stage') if isinstance(result, dict) else None
@@ -86,6 +92,10 @@ def safe_result(result, action, config):
             exact({'restored', 'sha256', 'complete', 'postgres_tables'})
             require(digest(result['sha256']) and result['complete'] is True and number(result['postgres_tables']) and result['postgres_tables'] > 0)
         require(result['restored'] is True)
+    elif action == 'reset-target':
+        exact({'reset', 'reset_id', 'quarantined'})
+        require(result['reset'] is True and result['quarantined'] is True)
+        require(isinstance(result['reset_id'], str) and re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', result['reset_id']))
     elif action == 'acceptance':
         require(result.get('health') is True)
         if result.get('ingestion') == 'not-configured':
@@ -97,7 +107,7 @@ def safe_result(result, action, config):
                     and re.fullmatch(r'/colors-acceptance-[0-9a-f]{32}', result['marker'])
                     and number(result['matched_events']) and result['matched_events'] > 0)
     else:
-        expected = {'prepare': {'prepared', 'fenced'}, 'converge': {'converged'}, 'fence': {'fenced'}}.get(action)
+        expected = {'prepare': {'prepared', 'fenced'}, 'converge': {'converged'}, 'fence': {'fenced'}, 'readiness': {'ready', 'tls', 'health'}}.get(action)
         require(expected is not None)
         exact(expected)
         require(all(result[key] is True for key in expected))
@@ -135,6 +145,12 @@ def converge(config, deployment, current, operation, *, prepare=False, stack_env
     backup_credentials()
     aliases(config, host, {'ip': '192.0.2.1', 'user': deployment.get('ssh-user', 'ubuntu')}, check_only=True)
     service = dns(config, state)
+    adoption = state.get_meta('dns-adoption:dns:A:' + config.get('rybbit-host', ''))
+    if adoption and not prepare:
+        connection = cloud.connection()
+        evidence = service.evidence(config['rybbit-host'])
+        if evidence['ipv4'] != connection['ip']:
+            raise DeployError('Use dns-switch after origin readiness to change adopted routing.')
     service.preflight()
     cloud.plan()
     initialize(deployment, state, host, current.root)
@@ -249,3 +265,107 @@ def delete(config, deployment, current, operation):
     service.delete(operation)
     return delete_compute(deployment, current.state, current.cloud, current.host, operation,
                           before_cleanup=lambda: aliases(config, current.host, remove=True))
+
+
+def application_converge(config, current, operation):
+    """Reconcile an existing host without touching compute or DNS."""
+    connection = current.cloud.connection()
+    evidence = {'instance_id': connection['instance_id'], 'host': config['rybbit-host']}
+    step = current.state.intent(operation, 'rybbit-application-converge', evidence)
+    result = remote(current.host, connection, config, 'converge', enable_backups=False)
+    state = current.state
+    state.complete(step, {'verified': True})
+    complete_identical_pending(state, 'rybbit-application-converge', evidence)
+    return result
+
+
+def complete_identical_pending(state, name, evidence):
+    for row in state.db.execute("SELECT id,payload FROM steps WHERE step=? AND status='pending'", (name,)).fetchall():
+        if json.loads(row['payload']) == evidence:
+            state.complete(row['id'], {'verified': True, 'recovered': True})
+
+
+def dns_adopt(config, current, operation, filename, disabled):
+    if not disabled:
+        raise DeployError('Disable and drain the previous DNS manager before adoption.')
+    try:
+        evidence = json.loads(private_text(filename))
+        if set(evidence) != {'host', 'zone', 'record_id', 'ipv4', 'proxied', 'ttl', 'settings_sha256'}:
+            raise ValueError()
+        if evidence['host'] != config['rybbit-host']:
+            raise ValueError()
+        if type(evidence['proxied']) is not bool or type(evidence['ttl']) is not int:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise DeployError('Supply the exact dns-evidence object for the configured hostname.') from None
+    return dns(config, current.state).adopt(current.cloud.connection(), operation,
+               {**evidence, 'previous_dns_manager_disabled': True})
+
+
+def dns_switch(config, current, operation):
+    state = current.state
+    name = 'dns:A:' + config['rybbit-host']
+    receipt = state.get_meta('dns-adoption:' + name)
+    if not receipt or receipt.get('completed') is not True:
+        raise DeployError('Complete explicit DNS adoption before switching production routing.')
+    saved = state.get_resource(name)
+    if not saved or saved['provider_id'] != receipt['evidence']['record_id'] or not saved['owned']:
+        raise DeployError('Adopted DNS record identity differs.')
+    connection = current.cloud.connection()
+    remote(current.host, connection, config, 'readiness')
+    return dns(config, state).converge(connection, operation)
+
+
+def dns_retire(config, current, operation, hostname, record_id):
+    if hostname == config['rybbit-host']:
+        raise DeployError('Retirement requires an old hostname, not the active application hostname.')
+    name = 'dns:A:' + hostname
+    saved = current.state.get_resource(name)
+    receipt_key = 'rybbit-dns-retired:' + hostname
+    expected = {'record_id': record_id, 'retired': True}
+    if not saved and current.state.get_meta(receipt_key) == expected:
+        return expected
+    pending = current.state.get_meta(receipt_key) == {'record_id': record_id, 'retired': False}
+    if (not saved and not pending) or (saved and (saved['kind'] != 'cloudflare-dns' or not saved['owned']
+            or saved['provider_id'] != record_id)):
+        raise DeployError('Retirement requires the exact recorded owned DNS identity.')
+    service = CloudflareDNS(config, current.state, [hostname])
+    service.plan_delete()
+    current.state.set_meta(receipt_key, {'record_id': record_id, 'retired': False})
+    result = service.delete(operation)
+    current.state.set_meta(receipt_key, expected)
+    return result
+
+
+def reset_target(config, current, operation, reset_id, machine_id, instance_id, deployment_id):
+    if config['profile'] != 'rybbit-hcloud' or current.state.deployment_id != deployment_id:
+        raise DeployError('Target reset requires exact rybbit-hcloud deployment identity.')
+    staging = 'rybbit-hcloud.getcolors.ai'
+    if config.get('rybbit-host') != staging:
+        raise DeployError('Target reset is restricted to the staging hostname before production adoption.')
+    if current.state.db.execute("SELECT 1 FROM meta WHERE key LIKE 'dns-adoption:%' LIMIT 1").fetchone():
+        raise DeployError('Target reset is forbidden after DNS adoption begins.')
+    if any(row['kind'] == 'cloudflare-dns' and row['name'] != 'dns:A:' + staging
+           for row in current.state.resources()):
+        raise DeployError('Target reset refuses recorded non-staging DNS resources.')
+    try:
+        if str(uuid.UUID(reset_id)) != reset_id or not re.fullmatch(r'[0-9a-f]{32}', machine_id):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise DeployError('Target reset requires a canonical reset UUID and exact machine ID.') from None
+    saved = current.state.get_resource('compute')
+    if not saved or not saved['owned'] or saved['provider_id'] != instance_id:
+        raise DeployError('Target reset requires exact recorded owned compute identity.')
+    connection = current.cloud.connection()
+    if connection['instance_id'] != instance_id:
+        raise DeployError('Target reset live compute identity differs.')
+    evidence = {'reset_id': reset_id, 'expected_machine_id': machine_id,
+                'instance_id': instance_id, 'deployment_id': deployment_id}
+    step = current.state.intent(operation, 'rybbit-reset-target', evidence)
+    result = remote(current.host, connection, config, 'reset-target',
+                    reset_id=reset_id, expected_machine_id=machine_id)
+    if result['reset_id'] != reset_id:
+        raise DeployError('Target reset receipt identity differs.')
+    current.state.complete(step, {'verified': True, 'reset_id': reset_id})
+    complete_identical_pending(current.state, 'rybbit-reset-target', evidence)
+    return result
