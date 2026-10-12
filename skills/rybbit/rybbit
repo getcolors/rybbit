@@ -1,0 +1,10 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["rybbit-deploy @ git+https://github.com/getcolors/rybbit.git@1e9980dc750adfa62b7f9d99a49b1931ce5e2c29"]
+# ///
+"""Portable Rybbit deployment CLI; configuration follows the caller directory."""
+from rybbit.cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -92,7 +92,8 @@ been made. Database backup verification is separate from controller recovery.
 - Alice against the shared changes: 42 tests.
 - Walter against the shared changes: 162 tests, 47 subtests; one skipped.
 - Rybbit: 78 tests and four subtests; package build passed and wheel templates verified.
-- Portable launcher verification follows publication of the implementation commit.
+- Copied portable launcher pinned to published implementation `1e9980dc750adfa62b7f9d99a49b1931ce5e2c29`: help, usage, synthetic configuration and missing-state checks passed from an unrelated directory, with no provider calls.
+- Shared PocketDeploy implementation `52b016fb249068a3f3d3afa5b52042198bf7b3e7` and launcher release `b6eb347e13ca025b2a8bbd2c80fa28694c86009b` passed GitHub CI.
 
 ## Remaining release evidence
 
