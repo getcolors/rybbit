@@ -14,8 +14,8 @@ hcloud-server-type: cax21
 hcloud-location: nbg1
 hcloud-image: "161547270"
 
-# Separate rehearsal DNS; production remains on rybbit-hetzner.
-rybbit-host: rybbit-hcloud.getcolors.ai
+# Production transferred to this profile on 2026-10-12.
+rybbit-host: rybbit.getcolors.ai
 rybbit-disable-signup: true
 # Multi-architecture indices include linux/arm64; Rybbit v2.9.0 rehearsal.
 postgres-image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24

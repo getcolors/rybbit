@@ -206,3 +206,52 @@ application ingress/writers and backups are now fenced for the final archive;
 staging is intentionally unavailable. A repeated preparation passed with the
 final service-state verification: timer disabled, timer/service inactive, and
 unexpected systemctl inspection failures refused. Production remains online.
+
+## Production cutover — 12 October 2026
+
+The user approved the final write interruption and routing transfer. Production
+now runs on `rybbit-hcloud`, server `169932721`, `178.105.137.48`, deployment
+`40bddaf7-f261-4e19-9c8b-02a935edc7b3`, at `rybbit.getcolors.ai`.
+
+- Source ingress was fenced, counts remained quiet for 60 seconds, then backend
+  and client stopped. Source backups were disabled. Queue depth was not directly
+  verified, so this does not establish a zero-loss drain. Freeze began 18:14:49
+  UTC; independent public health passed at 18:22:59 UTC, an approximately
+  eight-minute-ten-second freeze-to-verification interval.
+- Final source archive `rybbit-20261012T181655Z-1c8dcaf6.tar.gz`, SHA-256
+  `bd862589961a6d508618d16fe71d5ebd56bead046ac022adf5a0c89a046d42ff`, restored
+  successfully. It remains on source, protected local storage and target, with
+  an independently downloaded/verified R2 copy under
+  `migration-retained/2026-10-12/`, outside scheduled retention.
+- Users (2), organizations (1), sites (3) and analytics events (7,855) matched.
+  The target had 1,037 replay sessions, 63,493 replay rows/events and 430,600,572
+  compressed bytes. The source difference of two sessions, six rows/events and
+  143,341 bytes exactly matched source records expired under the 30-day TTL;
+  target expired counts were zero and latest timestamps matched. This is
+  aggregate evidence of retention expiry, not a row-by-row equivalence proof.
+  The user had explicitly accepted a small loss while this was investigated.
+- Production origin TLS/SNI, backend and frontend readiness passed before
+  switching. DNS adoption preserved the source address and record identity;
+  the separate switch retained record `638a21dd81d2e8f02995de6cc23cf67d`, proxy
+  enabled and TTL 1, changing only the origin to the target.
+- The legacy default configuration was disabled and its managers locked during
+  transfer. Supported OpenTofu state removal forgot only
+  `cloudflare_dns_record.rybbit` (backend serial 4 to 5); private before/after
+  snapshots were retained. Independent provider evidence confirmed the target
+  record remained unchanged. Never run the disabled legacy DNS manager again.
+- Independent public and direct-origin health, login and tracking script checks
+  passed with valid TLS. A unique synthetic event arrived exactly once. The
+  user verified production login, historical analytics and replay playback.
+- Target convergence enabled normal backups. Backup
+  `rybbit-20261012T182344Z-85a428fa.tar.gz` uploaded and verified, then an
+  independent R2 download restored 39 PostgreSQL and seven ClickHouse tables
+  into temporary databases. All aggregates matched, including 7,856 events
+  after acceptance; scratch databases were removed.
+- Source server `169322464` remains retained with backend/client stopped and
+  backups disabled. Only its existing Caddy container was restarted to preserve
+  the verified HTTPS 301 redirect from `rybbit.bigconfig.online` to production.
+  Source retirement is not authorized. DNS-only rollback would discard new
+  target writes; any reverse migration requires a verified data transfer.
+- Retired the exact owned staging DNS record. Final independent checks confirmed
+  all six target services running, all configured health checks healthy, backup
+  timer enabled/active, and public HTTPS health 200.

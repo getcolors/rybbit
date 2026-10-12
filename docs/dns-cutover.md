@@ -1,9 +1,11 @@
 # Explicit DNS cutover
 
-The permanent target profile remains **`rybbit-hcloud`**. Rehearse at
-`rybbit-hcloud.getcolors.ai`; production remains on `rybbit-hetzner` at
-`rybbit.getcolors.ai` until a separately approved final write interruption and
-routing transfer. Changing the application hostname never renames compute,
+Production switched on 12 October 2026 to the permanent profile
+**`rybbit-hcloud`**, Hetzner server `169932721` at `178.105.137.48`, serving
+`rybbit.getcolors.ai`. The source `rybbit-hetzner` remains retained with application
+writers and scheduled backups fenced. Its legacy default configuration is
+disabled, and its production DNS backend binding has been removed while
+preserving the provider record. Changing the application hostname never renames compute,
 backup destinations or deployment identity. Do not run the old DNS manager
 after ownership transfer. Source retirement is a separate decision.
 

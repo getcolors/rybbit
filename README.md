@@ -11,12 +11,14 @@ ClickHouse and Redis. Caddy exposes HTTPS; database and application ports stay
 on the private Compose network. Only SSH, TCP 80/443 and UDP 443 are public,
 subject to the configured source allowlists.
 
-The new profile is `rybbit-hcloud`, initially using
-`rybbit-hcloud.getcolors.ai`. Production remains `rybbit-hetzner` at
-`rybbit.getcolors.ai` until a verified final migration. See
+Production switched to the permanent profile `rybbit-hcloud` on 12 October
+2026. `rybbit.getcolors.ai` now routes to Hetzner server `169932721` at
+`178.105.137.48`. The source `rybbit-hetzner` is retained with application writers
+and scheduled backups fenced. Its legacy default configuration is disabled,
+and its production DNS backend binding has been removed without deleting the
+provider record. See
 [verification](docs/verification.md) for dated evidence and
 [recovery and migration](docs/disaster-recovery.md) for the transfer procedure.
-A live staging deployment does not establish that production data is migrated.
 Vultr is retired and cannot provide rollback.
 
 ## Setup
@@ -124,9 +126,10 @@ databases. Use CLI help for command-specific options.
 
 The Python controller creates a fresh server and new ownership under
 `rybbit-hcloud`. It does not import the old `rybbit-hetzner` infrastructure.
-The retained legacy checkout operates the source until retirement. Rehearse
-restoration at the staging hostname, validate counts, ingestion, backups and
-recovery, then perform a final fenced snapshot before production routing moves.
+The retained legacy checkout is disabled for ordinary operation after the
+12 October 2026 transfer. Keep its source writers fenced and DNS management
+disabled; source retirement requires a separate decision. The final source
+archive and controller recovery material remain retained.
 
 After the target accepts production writes, routing traffic back to a stale
 source would lose new data. Preserve the source and snapshots; plan any reverse
