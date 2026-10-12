@@ -7,3 +7,8 @@ node_modules/
 dist/
 __pycache__/
 *.pyc
+build/
+*.egg-info/
+*.sqlite
+*.sqlite-*
+*.tar.gz

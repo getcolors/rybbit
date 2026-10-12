@@ -1,9 +1,7 @@
-profile: rybbit-hetzner
+profile: rybbit-hcloud
 workdir: .colors
-compute-api-version: 2
 provider-compute: hcloud
 provider-dns: cloudflare
-provider-backend: r2
 compute-prevent-destroy: true
 # Initial Hetzner create completed; refuse missing ownership on later runs.
 compute-require-existing-state: true
@@ -16,10 +14,8 @@ hcloud-server-type: cax21
 hcloud-location: nbg1
 hcloud-image: "161547270"
 
-# Production DNS is owned by this profile after the verified state handoff.
-rybbit-host: rybbit.getcolors.ai
-# DNS for this legacy hostname is maintained outside the deployment state.
-rybbit-redirect-host: rybbit.bigconfig.online
+# Separate rehearsal DNS; production remains on rybbit-hetzner.
+rybbit-host: rybbit-hcloud.getcolors.ai
 rybbit-disable-signup: true
 # Multi-architecture indices include linux/arm64; Rybbit v2.9.0 rehearsal.
 postgres-image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
@@ -39,5 +35,3 @@ rybbit-backup-r2-endpoint: https://319271fed8bc6d2d9059362be1165f37.eu.r2.cloudf
 rybbit-backup-r2-region: auto
 rybbit-backup-oncalendar: "*-*-* 02:30:00"
 rybbit-backup-retention-days: 7
-r2-bucket: rybbit-hetzner-state
-r2-endpoint: https://319271fed8bc6d2d9059362be1165f37.eu.r2.cloudflarestorage.com

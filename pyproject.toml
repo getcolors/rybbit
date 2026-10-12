@@ -1,0 +1,25 @@
+[project]
+name = "rybbit-deploy"
+version = "3.0.0"
+description = "Rybbit on Hetzner with Python and private SQLite deployment state"
+requires-python = ">=3.11"
+dependencies = ["pocketdeploy @ git+https://github.com/pocketcontext/pocketdeploy.git@52b016fb249068a3f3d3afa5b52042198bf7b3e7"]
+
+[project.scripts]
+rybbit = "rybbit.cli:main"
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rybbit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

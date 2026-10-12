@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Provision a private single-node Rybbit web and product analytics service with PostgreSQL 17, ClickHouse, Redis, Cloudflare HTTPS, and restore-verified R2 backups on one VM through colors-compute v2.">
+  <meta name="description" content="Deploy Rybbit on Hetzner with Python, SQLite deployment state, verified SSH, Cloudflare HTTPS and native database backups.">
   <title>Rybbit Package Skill — getcolors</title>
   <style>
     :root{color-scheme:light;--ink:#1f2328;--muted:#59636e;--line:#d0d7de;--soft:#f6f8fa;--blue:#0969da;--green:#1a7f37;--warn:#9a6700}*{box-sizing:border-box}body{margin:0;color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:920px;margin:auto;padding:64px 28px 100px}h1{font-size:52px;line-height:1.05;margin:0}h2{margin-top:54px;padding-bottom:8px;border-bottom:1px solid var(--line)}h3{margin-top:30px}.lead{font-size:20px;color:var(--muted);max-width:790px}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{padding:18px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--soft)}:not(pre)>code{padding:.12em .35em;border-radius:5px;background:var(--soft)}a{color:var(--blue)}.eyebrow{color:var(--green);font-weight:700;letter-spacing:.08em}.callout{padding:16px 18px;border-left:4px solid var(--green);background:#dafbe1}.warning{border-color:var(--warn);background:#fff8c5}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{padding:18px;border:1px solid var(--line);border-radius:8px}.card h3{margin-top:0}table{width:100%;border-collapse:collapse;margin-top:18px}th,td{padding:9px 12px;border:1px solid var(--line);text-align:left;vertical-align:top;font-size:14.5px}th{background:var(--soft)}@media(max-width:650px){main{padding-top:38px}.grid{grid-template-columns:1fr}h1{font-size:40px}}
@@ -13,73 +13,21 @@
 <script src="https://rybbit.getcolors.ai/api/script.js" data-site-id="9fb9c41a6d49" defer></script>
 </head>
 <body><main>
-  <p class="eyebrow">GREEN · RED · BLUE PACKAGE SKILL · DIGITALOCEAN · VULTR · RYBBIT</p>
+  <p class="eyebrow">PYTHON · SQLITE · HETZNER</p>
   <h1>Rybbit Package Skill</h1>
-  <p class="lead">A reproducible Green, Red, and Blue workflow for one production-oriented Rybbit analytics platform: PostgreSQL 17 for metadata and authentication, ClickHouse for columnar events, Redis, and the Rybbit backend and client behind Caddy, with Cloudflare DNS and TLS.</p>
-
-  <div class="callout"><strong>ClickHouse is backed up with its own <code>BACKUP</code> statement.</strong> A hot <code>tar</code> of the data directory races the server’s merges and produces an archive that cannot be restored. This package takes a consistent native backup, verifies the PostgreSQL dump restores, and only then uploads — a failed backup fails the unit rather than leaving a plausible-looking object in the bucket.</div>
-
-  <h2>Quick start</h2>
-  <pre><code>npx skills add getcolors/rybbit
-cp .agents/skills/package-rybbit-green/green ./green
-chmod +x green
-./green build
-./green create --dry-run</code></pre>
-<p>Equivalent Red and Blue skills ship <code>red</code> and <code>blue</code> launchers.</p>
-  <p><code>build</code> renders the deployment without credentials. The dry-run walks the whole workflow while skipping every side effect. A real <code>create</code> or <code>delete</code> touches live infrastructure and requires separate authorization.</p>
-
-  <h2>Architecture and sizing</h2>
-  <div class="grid">
-    <div class="card"><h3>Compute</h3><p>One Ubuntu machine through colors-compute v2. Set <code>compute-api-version: 2</code> for a fresh deployment. The package owns workflow ordering; the library owns provider resources. Existing deployments retain their pinned launchers and state. Encrypted SSH authority and a temporary agent provide access through <code>./green ssh</code>; no decrypted key is persisted.</p></div>
-    <div class="card"><h3>Runtime</h3><p>Six containers: PostgreSQL 17, ClickHouse 26.3, Redis 8.6.4, the Rybbit 2.9.0 <code>backend</code> and <code>client</code>, and Caddy 2.11. Every datastore stays on the private Compose network. The Hetzner target pins ARM64-compatible image digests.</p></div>
-    <div class="card"><h3>Public boundary</h3><p>Cloudflare publishes one A record. Caddy routes <code>/api/*</code> and the OAuth discovery paths to <code>backend:3001</code> and everything else to <code>client:3002</code>. Only 22, 80 and 443 are admitted.</p></div>
-    <div class="card"><h3>Hetzner migration target</h3><p>The root configuration uses <code>cax21</code> in Nuremberg: 4 ARM64 vCPUs, 8 GB RAM and 80 GB local NVMe, with Ubuntu image <code>161547270</code>. Storage is prepared; deployment and the database upgrade rehearsal remain pending.</p></div>
-  </div>
-  <p>Secrets for the datastores are generated on the host on first converge into <code>/opt/rybbit/stack.env</code> at mode <code>0600</code> and retained across runs, so a re-converge never rotates a password out from under a running database. This is a single-node design: process and host restarts recover, but a machine, disk, or regional failure causes downtime.</p>
-
-  <h2>Desired state and credentials</h2>
-  <p><code>colors.yml</code> holds non-secret desired state: profile, provider location, image, machine size, ingress, hostname, application images and backup policy. Use <code>compute-ssh-sources</code> and <code>compute-http-sources</code>; HTTP sources also govern UDP443. State uses R2 or S3. Fresh deployments use independent identities; no v1 state adoption is provided. See the <a href="skills/package-rybbit-green/references/configuration.md">configuration reference</a>.</p>
-  <table>
-    <tr><th>Variable</th><th>Purpose</th></tr>
-    <tr><td><code>COLORS_PAR_RYBBIT_SSH_PASSPHRASE</code></td><td>Unlock retained encrypted SSH authority</td></tr>
-    <tr><td><code>COLORS_PAR_R2_ACCESS_KEY_ID</code><br><code>COLORS_PAR_R2_SECRET_ACCESS_KEY</code></td><td>R2 state and encrypted SSH authority</td></tr>
-    <tr><td><code>COLORS_PAR_CLOUDFLARE_API_TOKEN</code></td><td>DNS record for the configured host</td></tr>
-    <tr><td><code>COLORS_PAR_RYBBIT_BACKUP_R2_ACCESS_KEY_ID</code><br><code>COLORS_PAR_RYBBIT_BACKUP_R2_SECRET_ACCESS_KEY</code></td><td>R2 credentials for the backup bucket</td></tr>
-  </table>
-  <p>Database, ClickHouse, Redis and auth secrets are not supplied here — they are generated on the host and never leave it.</p>
-  <ul>
-    <li><code>rybbit-disable-signup</code> is desired state. Rybbit has <strong>no first-run bootstrap</strong>: with signup disabled nobody can create the first account, so leave it <code>false</code> until you have registered, then set it <code>true</code>. Converge again after changing signup policy; retained secrets are preserved.</li>
-    <li>Never export <code>COLORS_PAR_PROFILE</code>. The profile keys remote state.</li>
-    <li>Never edit or commit generated <code>.colors/</code> output.</li>
-    <li>Keep <code>compute-prevent-destroy: true</code> in committed desired state.</li>
-  </ul>
-
-  <h2>Acceptance and operations</h2>
-  <pre><code>./green create
-./green ssh
-# In the scoped session:
-sudo docker compose -f /opt/rybbit/compose.yml ps
-sudo systemctl status rybbit-backup.timer
-sudo journalctl -u rybbit-backup.service --since=-24h</code></pre>
-  <p>Acceptance runs at the end of <code>create</code> and reports only what it checked:</p>
-  <ul>
-    <li><strong>HTTPS with certificate verification.</strong> <code>/api/health</code> must answer over a valid certificate.</li>
-    <li><strong>Ingestion is read back from ClickHouse.</strong> A synthetic pageview is posted to <code>/api/track</code> and the events table must grow. A 2xx with no stored row is reported as <em>dropped</em>, not success; with no site configured the verdict is <em>not-configured</em>, which passes and claims nothing. The events table is resolved from <code>system.tables</code> rather than hardcoded, so a schema change fails loudly instead of silently checking nothing.</li>
-    <li><strong>The backup drill is confirmed in R2.</strong> The unit is started, the timer must be active, and the profile prefix must then contain a non-empty object newer than the run.</li>
-  </ul>
-
-  <h2>Backups, restoration, and disaster recovery</h2>
-  <p>A systemd timer runs nightly at <code>02:30</code> UTC. Each run dumps PostgreSQL, <strong>restores that dump into a scratch database and requires the schema back</strong>, takes a native ClickHouse <code>BACKUP</code> into the server’s allowed path on the bind mount, consolidates both into one archive, and uploads it to R2 under the profile prefix. There is deliberately no <code>tar</code> fallback for ClickHouse: an archive that cannot be restored is worse than a failed unit.</p>
-  <p>Retention applies to the bucket and the disk, both at <code>rybbit-backup-retention-days</code>.</p>
-  <p>To recover, unpack the newest archive, restore <code>postgres.sql</code> into an empty PostgreSQL 17 database and <code>clickhouse.zip</code> with ClickHouse <code>RESTORE</code>, then verify the dashboard and event ingestion before moving DNS. Never test restoration over live data.</p>
-
-  <div class="callout warning"><strong>Prevent-destroy is not a backup.</strong> Deleting compute retains encrypted SSH authority and does not delete backup objects. Image tags can move; pin digests for reproducibility. PostgreSQL restoration is checked automatically; ClickHouse restore rehearsal is a separate verification.</div>
-
-  <h2>Development and source</h2>
-  <pre><code>bb test
-bb golden
-bb golden:accept
-./scripts/launcher.sh</code></pre>
-  <p>Golden fixtures render the whole deployment from a fixture <code>colors.yml</code> and compare byte for byte; the accept step refuses to copy a rendered tree containing a credential-shaped value. <a href="https://github.com/getcolors/rybbit">Source on GitHub</a>. Read every golden diff — never accept generated output merely to make the suite pass.</p>
+  <p class="lead">Deploy one Rybbit analytics server with a Python controller, private SQLite deployment state and the Hetzner CLI. PocketDeploy supplies owned infrastructure, verified SSH and recovery.</p>
+  <h2>Keep it simple</h2>
+  <p>One maintained Python implementation. Rybbit runs in Docker Compose with PostgreSQL, ClickHouse, Redis and Caddy. SQLite records deployment identities and operations; it does not replace the application databases.</p>
+  <h2>Install and plan</h2>
+  <pre><code>npx skills add getcolors/rybbit --skill rybbit --agent codex --yes
+cp .agents/skills/rybbit/rybbit ./rybbit
+./rybbit validate
+./rybbit plan</code></pre>
+  <p>Install Python 3.11+, uv, OpenSSH, hcloud and the pinned Cloudflare CLI. Configuration follows the caller’s <code>colors.yml</code>. Keep credentials outside Git.</p>
+  <h2>Deploy and recover</h2>
+  <p><code>init</code> prepares private local state and SSH keys. <code>converge</code> reconciles owned compute, DNS and application settings. <code>prepare</code> holds application writers and backups stopped for an explicit database restore.</p>
+  <p>PostgreSQL logical dumps and ClickHouse native backups upload to R2 under the deployment profile. Controller recovery and application-data recovery are separate. Existing infrastructure is never adopted by name.</p>
+  <h2>Documentation</h2>
+  <p><a href="https://github.com/getcolors/rybbit#readme">Setup and commands</a> · <a href="https://github.com/getcolors/rybbit/blob/main/docs/disaster-recovery.md">Recovery</a> · <a href="https://github.com/getcolors/rybbit/blob/main/docs/verification.md">Dated verification</a></p>
 </main></body>
 </html>

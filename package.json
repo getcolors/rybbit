@@ -1,33 +1,6 @@
 {
-  "name": "package-rybbit-red",
-  "version": "0.1.0",
-  "type": "module",
-  "license": "MIT",
-  "exports": {
-    ".": "./red/src/index.ts"
-  },
-  "files": [
-    "red/src",
-    "red/resources"
-  ],
-  "peerDependencies": {
-    "red": "*",
-    "package-once-red": "*"
-  },
-  "peerDependenciesMeta": {
-    "red": {
-      "optional": true
-    },
-    "package-once-red": {
-      "optional": true
-    }
-  },
-  "scripts": {
-    "test": "cd red && bun test && bun run typecheck",
-    "typecheck": "cd red && bun run typecheck",
-    "parity": "./scripts/parity.sh"
-  },
-  "dependencies": {
-    "colors-compute-red": "github:getcolors/colors-compute#b4421d0478ced33fc5b97cdd4a8a93cd34949f18"
-  }
+  "name": "rybbit-cloud-cli",
+  "private": true,
+  "version": "3.0.0",
+  "dependencies": { "cf": "1.0.0-beta.14" }
 }
