@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["rybbit-deploy @ git+https://github.com/getcolors/rybbit.git@6cf30d3119c2b4bd550786f337c0731b25898c39"]
+# dependencies = ["rybbit-deploy @ git+https://github.com/getcolors/rybbit.git@ebd36809c2daf7a2571d6e27931da0ce0079856f"]
 # ///
 """Portable Rybbit deployment CLI; configuration follows the caller directory."""
 from rybbit.cli import main
