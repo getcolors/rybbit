@@ -255,3 +255,56 @@ now runs on `rybbit-hcloud`, server `169932721`, `178.105.137.48`, deployment
 - Retired the exact owned staging DNS record. Final independent checks confirmed
   all six target services running, all configured health checks healthy, backup
   timer enabled/active, and public HTTPS health 200.
+
+## Legacy Hetzner retirement — 13 October 2026
+
+The user authorized retirement after the production checks and redirect move.
+Production remains `rybbit-hcloud`, server `169932721`, `178.105.137.48`.
+
+- Added `rybbit-redirect-host: rybbit.bigconfig.online` to desired configuration.
+  Transferred the existing Caddy-managed certificate, key and metadata over
+  verified SSH without exposing their contents. Validated and hot-reloaded only
+  Caddy, preserving automatic certificate management and running application
+  services. A protected previous Caddyfile remains on the target.
+- Moved legacy redirect DNS to the target before deleting source compute.
+  Independent public and direct-origin HTTPS checks returned 301 to production,
+  preserving `/retirement-check/a%20b?one=1&two=hello%20world` exactly, with valid
+  TLS. Production `/api/health` returned 200 through both routes after deletion.
+- Deleted old server `169322464`, dedicated firewall `11757873` and primary IPv4
+  resource `154205155`; provider 404 checks confirmed their absence.
+- All six target services remain running; PostgreSQL, ClickHouse, Redis and the
+  backend report healthy. The backup timer remains active, with its next run at
+  02:33:58 UTC on 14 October.
+- The first post-cutover scheduled backup completed successfully at 02:32:22 UTC.
+  Its upload-and-download-verification receipt identifies
+  `rybbit-20261013T023210Z-79a408b1.tar.gz`, SHA-256
+  `3906b5729993cb0d369e9aa479752c49d8659f11d8ecb7f4c2f0fe707d334e17`.
+  Independent R2 listing confirmed the `rybbit-hcloud/` object (61,685,628 bytes).
+- Preserved the shared `rybbit-hetzner-backup` bucket and legacy state bucket.
+  The final archive remains at
+  `migration-retained/2026-10-12/final-source-bd862589961a.tar.gz`
+  (61,771,452 bytes), alongside retained rehearsal archives. These objects were
+  independently listed, not downloaded or restored again during retirement.
+- Deleted source SSH registration `131051812`; provider 404 confirmed absence
+  at 07:13:22 UTC. The active SSH key differs and its controller does not use
+  this provider registration. Removed exactly the owned 500-byte legacy SSH
+  configuration block; unrelated configuration remained byte-identical and the
+  active `rybbit-hcloud` snippet was unchanged. A protected backup and cleanup
+  receipt remain in the retirement preservation directory.
+- Removed the legacy linked checkout after privately preserving its complete
+  contents and shared Git metadata beneath
+  `/home/ubuntu/.local/share/rybbit-retirement-20261013/` (directory mode 0700,
+  archive mode 0600). The active repository and production checkout remain.
+- A temporary token scoped to the legacy hostname's DNS zone enabled the redirect
+  transfer and was revoked afterward. Existing shared credentials were retained.
+
+Remaining follow-up: observe automatic TLS renewal for the moved hostname,
+review ownership and retention of preserved recovery material, and perform a
+future complete recovery drill. These are not established by HTTPS checks or
+object existence alone.
+
+Validation: `uv run rybbit validate --json`, Caddy configuration validation,
+public/direct-origin TLS and redirect checks, service and backup-timer checks.
+No application source changed or synthetic ingestion was performed. Current
+login and replay were not re-exercised; their accepted cutover evidence remains
+recorded above. Repository changes were not committed or pushed.

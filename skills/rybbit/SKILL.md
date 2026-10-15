@@ -12,10 +12,11 @@ with `rybbit --help` and the relevant command's help for exact options.
 
 ## Ownership and privacy
 
-The new Python deployment is `rybbit-hcloud`. Its private SQLite state and local
-SSH authority belong to that profile. `rybbit-hetzner` retains the legacy source
-controller until a verified transfer. Never copy its Terraform state into
-SQLite or operate the same resources through both controllers. Vultr is retired.
+Production uses `rybbit-hcloud`. Its private SQLite state and local SSH authority
+belong to that profile. The old `rybbit-hetzner` deployment was retired on
+13 October 2026 after the verified transfer. Its historical state and archives
+remain retained; never restart its controller or copy Terraform state into
+SQLite. Neither old Hetzner compute nor Vultr is a recovery origin.
 
 Load credentials through the trusted shell. Do not print `.envrc.private`,
 application secret files, raw cloud responses, Docker metadata or environment

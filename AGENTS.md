@@ -13,11 +13,11 @@ and acceptance logic. PocketDeploy owns generic infrastructure. SQLite stores
 deployment identities and operations; Rybbit still uses PostgreSQL, ClickHouse
 and Redis. Do not replace application databases as part of controller work.
 
-The new profile is `rybbit-hcloud`. `rybbit-hetzner` is the existing production
-source until a documented final transfer. The legacy checkout at
-`/home/ubuntu/code/getcolors/rybbit-hetzner-legacy` preserves its old controller.
-Never point both controllers at one set of resources or copy legacy Terraform
-state into the new SQLite state. Vultr is retired and is not a rollback target.
+Production uses `rybbit-hcloud` after the 12 October 2026 transfer. The old
+`rybbit-hetzner` server was deleted on 13 October after its legacy redirect moved
+to production. Retained archives and legacy state are recovery evidence; never
+restart the old controller or copy legacy Terraform state into SQLite. Neither
+the old Hetzner server nor Vultr is a rollback target.
 See docs/disaster-recovery.md and dated docs/verification.md evidence.
 
 ## State and secrets

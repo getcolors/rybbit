@@ -35,3 +35,6 @@ rybbit-backup-r2-endpoint: https://319271fed8bc6d2d9059362be1165f37.eu.r2.cloudf
 rybbit-backup-r2-region: auto
 rybbit-backup-oncalendar: "*-*-* 02:30:00"
 rybbit-backup-retention-days: 7
+
+# Retained legacy hostname; DNS is managed separately.
+rybbit-redirect-host: rybbit.bigconfig.online

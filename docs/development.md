@@ -7,8 +7,9 @@ application code in `src/rybbit/` and avoid a second infrastructure framework.
 Alice and Walter provide reference application-controller patterns.
 
 The Python controller replaces the previous Green/Red/Blue package runtime.
-Historical deployment instructions belong to the retained legacy checkout or
-Git history. Do not apply legacy parity or `bb pin` workflows to the new package.
+Historical deployment instructions remain in the private retirement archive and
+Git history. The legacy checkout was removed after retirement. Do not apply
+legacy parity or `bb pin` workflows to the new package.
 
 ## Local validation
 
@@ -41,14 +42,15 @@ published package revision. Do not publish a moving Git branch as a release pin.
    published full commit.
 4. Test the copied launcher, commit its pin and push. Confirm CI status.
 
-Publishing new code never upgrades the legacy production controller implicitly.
-Keep the old deployment's checkout, package pins, state and SSH authority intact
-until migration and retirement are complete.
+Publishing new code does not update a deployed portable launcher implicitly.
+The legacy production controller is retired; preserve its archived state and
+recovery material, and never restart it.
 
 ## Live verification
 
-Use the separately identified `rybbit-hcloud` deployment and its staging
-hostname. Keep production DNS unchanged during rehearsal. Test actual
+`rybbit-hcloud` is production, not a staging deployment. Use fresh isolated
+compute, a distinct staging hostname and a separate backup destination for
+authorized recovery drills. Keep production DNS unchanged during rehearsal. Test actual
 provisioning, SSH host trust, repeated convergence, public HTTPS, restored
 aggregate counts, ingestion, backup upload and archive restoration. Capture
 failure/retry evidence where it can be exercised without risking source data.

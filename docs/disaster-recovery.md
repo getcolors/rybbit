@@ -8,14 +8,13 @@ in [verification](verification.md). Credentials and recovery files remain privat
 ## Source and target
 
 Production moved to `rybbit-hcloud` (server `169932721`, `178.105.137.48`)
-on 12 October 2026, serving `rybbit.getcolors.ai`. The retained migration
-source is `rybbit-hetzner`; its application writers and backups remain fenced. Its
-legacy checkout remains at `/home/ubuntu/code/getcolors/rybbit-hetzner-legacy`
-(preserved starting revision `b5b63ca`). Operate it with its established
-SSH authority for deliberate maintenance only. Its default configuration is
-disabled and its production DNS backend binding was removed; do not restart
-the legacy controller. The Python target was rehearsed at
-`rybbit-hcloud.getcolors.ai`. Vultr is retired, not a recovery origin.
+on 12 October 2026, serving `rybbit.getcolors.ai`. The former migration source
+`rybbit-hetzner` was retired on 13 October after its legacy redirect moved to the
+target. Its server, dedicated firewall and primary IPv4 no longer exist. Final
+archives, legacy state and controller recovery material remain retained; do not
+restart the legacy controller. Recovery now requires fresh compute and a verified
+archive. The target was rehearsed at `rybbit-hcloud.getcolors.ai`. Vultr is also
+retired, not a recovery origin.
 
 Each deployment has its own provider identities, credentials, authority and
 state. Target `.colors.sqlite` and `.ssh/` replace the legacy remote Terraform
