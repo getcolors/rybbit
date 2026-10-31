@@ -325,3 +325,10 @@ Tests used synthetic inputs and isolated state. No live deployment, cloud,
 SSH, DNS, application-data or installed deployment-launcher changes were made
 for this dependency release. Portable launcher publication follows the source
 commit and is checked separately from an unrelated directory.
+
+Portable launcher follow-up: the skill launcher pins published Rybbit
+`9fb5c2456ca1a1104b72a0d58ed962701fbc325e`; the root launcher remains its
+symlink. `uv run --locked python scripts/check-launcher.py` passed from an
+unrelated temporary directory: help, invalid usage, synthetic configuration
+loading and missing-state refusal. Provider stubs were not invoked and no
+controller state was created. No production launcher was refreshed.
