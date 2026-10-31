@@ -3,7 +3,9 @@ name = "rybbit-deploy"
 version = "3.0.0"
 description = "Rybbit on Hetzner with Python and private SQLite deployment state"
 requires-python = ">=3.11"
-dependencies = ["pocketdeploy @ git+https://github.com/pocketcontext/pocketdeploy.git@35529af2b3642f530e8bc2a27ecefecff28f4797"]
+dependencies = [
+    "pocketdeploy @ git+https://github.com/pocketcontext/pocketdeploy.git@3df198119b8a873e88ad6c45b7988e9c3981d39e",
+]
 
 [project.scripts]
 rybbit = "rybbit.cli:main"

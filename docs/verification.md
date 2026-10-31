@@ -308,3 +308,20 @@ public/direct-origin TLS and redirect checks, service and backup-timer checks.
 No application source changed or synthetic ingestion was performed. Current
 login and replay were not re-exercised; their accepted cutover evidence remains
 recorded above. Repository changes were not committed or pushed.
+
+## Workflow SDK cleanup dependency validation — 31 October 2026
+
+Updated the package dependency to published PocketDeploy
+`3df198119b8a873e88ad6c45b7988e9c3981d39e`, resolving Blue
+`0c5ee6a279a61cf247c9af2a0621d715c848efd4`. Blue retains DAG execution,
+subworkflows, advice and configuration helpers while removing unused generic
+CLI, lifecycle, progress and dry-run helpers. Application behavior stays in
+this controller and PocketDeploy.
+
+Validation used the locked published dependencies, not editable SDK checkouts:
+`uv sync --locked --extra test`, `uv run --locked --extra test pytest -q`
+(135 tests and 85 subtests passed), and `uv build` (source distribution and wheel passed).
+Tests used synthetic inputs and isolated state. No live deployment, cloud,
+SSH, DNS, application-data or installed deployment-launcher changes were made
+for this dependency release. Portable launcher publication follows the source
+commit and is checked separately from an unrelated directory.
